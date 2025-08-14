@@ -17,7 +17,7 @@ export default function DualSideFileTransfer() {
 
   const navigate = useNavigate();
   const apiBase =
-    window.location.hostname === "localhost" ? "http://localhost:5000" : "/api";
+    window.location.hostname === "localhost" ? "http://localhost:5000" : "https://media-access.onrender.com";
 
   // In your token generation form
   const handleGenerateToken = async () => {

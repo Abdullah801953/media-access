@@ -47,7 +47,7 @@ export default function DriveViewer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [apiBase] = useState(
-    window.location.hostname === "localhost" ? "http://localhost:5000" : "/api"
+    window.location.hostname === "localhost" ? "http://localhost:5000" : "https://media-access.onrender.com"
   );
 
   useEffect(() => {

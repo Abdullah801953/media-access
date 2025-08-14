@@ -20,7 +20,7 @@ export default function ImageDetail() {
   const [isVerified, setIsVerified] = useState(false);
   const [fileType, setFileType] = useState("image");
   const apiBase =
-    window.location.hostname === "localhost" ? "http://localhost:5000" : "/api";
+    window.location.hostname === "localhost" ? "http://localhost:5000" : "https://media-access.onrender.com";
   const watermarkedUrl = `${apiBase}/api/file/${id}/watermark`;
   const cleanUrl = `${apiBase}/api/download/${id}`;
 
