@@ -7,7 +7,7 @@ const App = () => {
   return (
     <Router>
       <Routes>
-        <Route path="/admin" element={<Dashboard/>}/>
+        <Route path="/" element={<Dashboard/>}/>
       </Routes>
     </Router>
   );
