@@ -6,8 +6,6 @@ const TokenSchema = new mongoose.Schema({
   fileId: { type: String }, 
   fileName: { type: String }, 
   fileType: { type: String },
-  expiresAt: { type: Date, required: true },
-  createdAt: { type: Date, default: Date.now }
 });
 
 const UserSchema = new mongoose.Schema({

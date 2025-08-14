@@ -171,7 +171,7 @@ export default function DualSideFileTransfer() {
                   <ArrowLeft className="h-5 w-5" />
                 </button>
                 <div className="text-center">
-                  <div className="font-semibold text-lg">Token Generated</div>
+                  <div className="text-lg">Token Generated</div>
                   <div className="text-sm opacity-90">
                     Your download token is ready
                   </div>

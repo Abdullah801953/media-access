@@ -7,17 +7,29 @@ const containerVariants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.15,
+      when: "beforeChildren",
+      staggerChildren: 0.15, // each card after 0.15s
+      delayChildren: 0.3, // wait before starting first card
     },
   },
 };
 
 const cardVariants = {
-  hidden: { opacity: 0, y: 20 },
+  hidden: { opacity: 0, y: 30, scale: 0.95 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.4, ease: "easeOut" },
+    scale: 1,
+    transition: {
+      type: "spring",
+      damping: 20,
+      stiffness: 120,
+    },
+  },
+  hover: {
+    y: -5,
+    scale: 1.02,
+    transition: { duration: 0.2, ease: "easeOut" },
   },
 };
 
@@ -42,12 +54,14 @@ export default function DriveViewer() {
       day: "numeric",
     });
   };
-  
+
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [apiBase] = useState(
-    window.location.hostname === "localhost" ? "http://localhost:5000" : "https://media-access.onrender.com"
+    window.location.hostname === "localhost"
+      ? "http://localhost:5000"
+      : "https://media-access.onrender.com"
   );
 
   useEffect(() => {
@@ -103,7 +117,7 @@ export default function DriveViewer() {
           <div className="relative w-full h-full flex items-center justify-center bg-black">
             <video className="max-h-full max-w-full">
               <source
-                src={`${apiBase}/api/file/${file.id}`}
+                src={`${apiBase}/api/file/${file.id}/watermark`}
                 type={file.mimeType}
               />
             </video>
@@ -155,7 +169,7 @@ export default function DriveViewer() {
     <div className="min-h-screen bg-black relative">
       {/* Show loading screen while loading */}
       {loading && <LoadingScreen />}
-      
+
       {/* Show error message if there's an error */}
       {error && (
         <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
@@ -163,8 +177,8 @@ export default function DriveViewer() {
             <h2 className="text-2xl font-bold text-red-600 mb-2">Error</h2>
             <p className="text-gray-800 mb-4">{error.message}</p>
             <p className="text-sm text-gray-600">{error.details}</p>
-            <button 
-              onClick={() => window.location.reload()} 
+            <button
+              onClick={() => window.location.reload()}
               className="mt-4 px-4 py-2 bg-black text-white rounded hover:bg-gray-800"
             >
               Try Again
@@ -175,24 +189,28 @@ export default function DriveViewer() {
 
       <main className="max-w-7xl mx-auto px-4 py-8">
         {files.length === 0 && !loading ? (
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+          <motion.div
+            className="text-center py-12 bg-white rounded-lg border border-gray-200"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
             <h3 className="mt-2 text-lg font-medium text-gray-900">
               No files found
             </h3>
             <p className="mt-1 text-sm text-gray-500">
               The folder appears to be empty
             </p>
-          </div>
+          </motion.div>
         ) : (
           <>
-            <div className="mb-8 text-center">
+            <motion.div className="mb-8 text-center">
               <h2 className="text-3xl font-light text-white mb-2">
                 CURATED SELECTION
               </h2>
               <p className="text-gray-400 max-w-2xl mx-auto">
                 Premium quality media available for licensing or purchase
               </p>
-            </div>
+            </motion.div>
 
             <motion.div
               className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
@@ -205,6 +223,7 @@ export default function DriveViewer() {
                   key={file.id}
                   className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300"
                   variants={cardVariants}
+                  whileHover="hover"
                 >
                   <Link
                     to={

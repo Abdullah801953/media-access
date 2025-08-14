@@ -5,42 +5,49 @@ export async function addWatermark(inputImage, outputImage) {
   try {
     const absoluteOutputPath = path.resolve(outputImage);
 
-    // Original image size
+    // Manual dimensions for watermark
+    const watermarkWidth = 800; // pixels
+    const watermarkHeight = 600; // pixels
+
+    // Load watermark and resize to given pixel dimensions
+    const watermark = await sharp(
+      path.resolve(__dirname, "watermarks/logo2.png")
+    )
+      .resize({
+        width: watermarkWidth,
+        height: watermarkHeight,
+        fit: "contain", // keep aspect ratio
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .toBuffer();
+
+    // Get base image dimensions (only to center the watermark)
     const metadata = await sharp(inputImage).metadata();
     const imgWidth = metadata.width;
     const imgHeight = metadata.height;
 
-    // Watermark resize (~10% of width)
-    const watermark = await sharp(
-      path.resolve(__dirname, "watermarks/logo.png")
-    )
-      .resize(100)
-      .toBuffer();
+    // Center position calculation
+    const left = Math.floor((imgWidth - watermarkWidth) / 2);
+    const top = Math.floor((imgHeight - watermarkHeight) / 2);
 
-    // Generate 100 random positions
-    const watermarks = [];
-    for (let i = 0; i < 100; i++) {
-      const left = Math.floor(
-        Math.random() * (imgWidth - Math.floor(imgWidth * 0.1))
-      );
-      const top = Math.floor(
-        Math.random() * (imgHeight - Math.floor(imgWidth * 0.1))
-      );
-      watermarks.push({
-        input: watermark,
-        left,
-        top,
-        blend: "over",
-        opacity: 0.3,
-      });
-    }
+    // Apply watermark
+    await sharp(inputImage)
+      .composite([
+        {
+          input: watermark,
+          left,
+          top,
+          blend: "over",
+          opacity: 0.3,
+        },
+      ])
+      .toFile(absoluteOutputPath);
 
-    // Apply all watermarks
-    await sharp(inputImage).composite(watermarks).toFile(absoluteOutputPath);
-
-    console.log(`100 watermarks added to ${absoluteOutputPath}`);
+    console.log(`Watermark added to ${absoluteOutputPath}`);
   } catch (err) {
     console.error("Error adding watermark:", err);
     throw err;
   }
 }
+// Apply all watermarks
+await sharp(inputImage).composite(watermarks).toFile(absoluteOutputPath);
