@@ -7,11 +7,14 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [copiedToken, setCopiedToken] = useState(null);
-
+  const apiBase =
+    window.location.hostname === "localhost"
+      ? "http://localhost:5000"
+      : "https://media-access.onrender.com";
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/users");
+        const response = await fetch(`${apiBase}/api/users`);
         const data = await response.json();
         setUsers(data);
         setLoading(false);
