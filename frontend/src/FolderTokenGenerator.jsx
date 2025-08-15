@@ -1,14 +1,13 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Calendar, MoreHorizontal, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useParams } from "react-router-dom";
 
-export default function DualSideFileTransfer() {
+export default function FolderTokenGenerator() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [expiryDays, setExpiryDays] = useState(3);
-  const [showExpiryOptions, setShowExpiryOptions] = useState(false);
   const [showBackSide, setShowBackSide] = useState(false);
   const [generatedToken, setGeneratedToken] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,7 +18,6 @@ export default function DualSideFileTransfer() {
   const apiBase =
     window.location.hostname === "localhost" ? "http://localhost:5000" : "https://media-access.onrender.com";
 
-  // In your token generation form
   const handleGenerateToken = async () => {
     try {
       setLoading(true);
@@ -64,26 +62,25 @@ export default function DualSideFileTransfer() {
     setName("");
     setEmail("");
     setMessage("");
+    setExpiryDays(3);
     setGeneratedToken("");
     setShowBackSide(false);
   };
 
+  const expiryOptions = [1, 3, 7, 14, 30];
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-      <div
-        className={`bg-white rounded-none shadow-lg w-full max-w-sm overflow-hidden transition-all duration-300 ${
-          showBackSide ? "rotate-y-180" : ""
-        }`}
-      >
+      <div className="bg-white rounded-none shadow-lg w-full max-w-sm overflow-hidden">
         {!showBackSide ? (
           <div className="front-side">
             <div className="bg-black text-white text-center py-3 font-semibold text-lg">
-              Generate Download Token
+              Generate Folder Access Token
             </div>
 
             <div className="p-4 space-y-4">
               {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded text-sm">
                   {error}
                 </div>
               )}
@@ -109,18 +106,19 @@ export default function DualSideFileTransfer() {
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Purpose of download (optional)"
+                placeholder="Purpose of access (optional)"
                 className="w-full border-b border-gray-300 px-1 py-2 text-sm focus:outline-none"
                 rows="2"
               />
 
              
+
               <button
                 onClick={handleGenerateToken}
                 disabled={loading || !name || !email}
-                className={`w-full rounded-full py-2 text-sm font-medium transition-colors ${
+                className={`w-full rounded-none py-3 text-sm font-medium transition-colors ${
                   name && email
-                    ? "bg-blue-600 text-white hover:bg-blue-700"
+                    ? "bg-black text-white hover:bg-gray-800"
                     : "bg-gray-200 text-gray-500 cursor-not-allowed"
                 }`}
               >
@@ -130,7 +128,7 @@ export default function DualSideFileTransfer() {
           </div>
         ) : (
           <div className="back-side">
-            <div className="bg-white p-4">
+            <div className="bg-white p-4 border-b">
               <div className="flex justify-between items-center">
                 <button
                   onClick={startNewTransfer}
@@ -139,9 +137,9 @@ export default function DualSideFileTransfer() {
                   <ArrowLeft className="h-5 w-5" />
                 </button>
                 <div className="text-center">
-                  <div className="text-lg">Token Generated</div>
-                  <div className="text-sm opacity-90">
-                    Your download token is ready
+                  <div className="text-lg font-medium">Folder Access Token</div>
+                  <div className="text-sm text-gray-500">
+                    Copy and use this token
                   </div>
                 </div>
                 <div className="w-5"></div>
@@ -151,7 +149,7 @@ export default function DualSideFileTransfer() {
             <div className="p-6 space-y-6">
               <div className="text-center">
                 <div className="text-xl font-bold mb-1">
-                  Your Download Token
+                  Your Folder Access Token
                 </div>
                 <p className="text-gray-600 mb-4">
                   {message || "No specific purpose provided"}
@@ -176,11 +174,11 @@ export default function DualSideFileTransfer() {
               </div>
 
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                <div className="bg-gray-100 p-2 rounded text-sm font-mono break-all mb-2 text-center" style={{ transform: 'rotateY(180deg)' }}>
+                <div className="bg-gray-100 p-3 rounded text-sm font-mono break-all mb-3 text-center">
                   {generatedToken}
                 </div>
                 <button
-                  className="w-full bg-black text-white rounded py-2 text-sm font-medium hover:bg-gray-800"
+                  className="w-full bg-black text-white rounded-none py-3 text-sm font-medium hover:bg-gray-800 mb-2"
                   onClick={() => {
                     navigator.clipboard.writeText(generatedToken);
                     alert("Token copied to clipboard!");
@@ -188,14 +186,18 @@ export default function DualSideFileTransfer() {
                 >
                   Copy Token
                 </button>
+                <button
+                  className="w-full border border-black text-black rounded-none py-3 text-sm font-medium hover:bg-gray-100"
+                  onClick={() => navigate(`/folder/${folderId}`)}
+                >
+                  Go to Folder
+                </button>
               </div>
 
-              <button
-                className="w-full bg-blue-600 text-white rounded py-2 text-sm font-medium hover:bg-blue-700"
-                onClick={() => navigate("/")}
-              >
-                Back to Gallery
-              </button>
+              <div className="text-xs text-gray-500 text-center">
+                <p>This token provides access to download files without watermarks</p>
+                <p className="mt-1">Share it only with authorized recipients</p>
+              </div>
             </div>
           </div>
         )}

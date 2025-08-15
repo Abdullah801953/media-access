@@ -4,9 +4,10 @@ import Gallery from "./Gallery";
 import ImageDetail from "./ImageDetail";
 import FileTransfer from "./FileTransfer";
 import Navbar from "./components/Navbar";
+import FolderViewer from "./FolderViewer";
 
 import "./App.css";
-import FolderViewer from "./FolderViewer";
+import FolderTokenGenerator from "./FolderTokenGenerator";
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/file-detail/:id" element={<ImageDetail />} />
         <Route path="/folder/:id" element={<FolderViewer />} />
         <Route path="/generate-token/:id" element={<FileTransfer />} />
+        <Route path="/folder-generate-token/:id" element={<FolderTokenGenerator />} />
       </Routes>
     </Router>
   );

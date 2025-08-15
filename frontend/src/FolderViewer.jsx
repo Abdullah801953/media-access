@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { jwtDecode } from "jwt-decode";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -31,14 +32,19 @@ const LoadingScreen = () => (
 
 export default function FolderViewer() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [token, setToken] = useState("");
+  const [isVerified, setIsVerified] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
       : "https://media-access.onrender.com";
 
+  const cleanUrl = `${apiBase}/api/verify-folder-token`;
   const formatDate = (dateString) => {
     if (!dateString) return "—";
     const date = new Date(dateString);
@@ -53,7 +59,8 @@ export default function FolderViewer() {
     if (file.mimeType) {
       if (file.mimeType.startsWith("image/")) return "image";
       if (file.mimeType.startsWith("video/")) return "video";
-      if (file.mimeType === "application/vnd.google-apps.folder") return "folder";
+      if (file.mimeType === "application/vnd.google-apps.folder")
+        return "folder";
     }
     return "file";
   };
@@ -75,10 +82,17 @@ export default function FolderViewer() {
         return (
           <div className="relative w-full h-full flex items-center justify-center bg-black">
             <video className="max-h-full max-w-full">
-              <source src={`${apiBase}/api/file/${file.id}/watermark`} type={file.mimeType} />
+              <source
+                src={`${apiBase}/api/file/${file.id}/watermark`}
+                type={file.mimeType}
+              />
             </video>
             <div className="absolute inset-0 flex items-center justify-center">
-              <svg className="w-16 h-16 text-white opacity-75" fill="currentColor" viewBox="0 0 20 20">
+              <svg
+                className="w-16 h-16 text-white opacity-75"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
                 <path d="M6.3 2.841A1.5 1.5 0 004 4.11v11.78a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
               </svg>
             </div>
@@ -87,7 +101,11 @@ export default function FolderViewer() {
       case "folder":
         return (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100">
-            <svg className="w-16 h-16 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+            <svg
+              className="w-16 h-16 text-gray-500"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
               <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
           </div>
@@ -95,11 +113,108 @@ export default function FolderViewer() {
       default:
         return (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100">
-            <svg className="w-16 h-16 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+            <svg
+              className="w-16 h-16 text-gray-500"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
               <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
           </div>
         );
+    }
+  };
+
+  const handleVerifyToken = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Local decode without secret key
+      const decoded = jwtDecode(token);
+      if (!decoded) throw new Error("Invalid token format");
+      if (new Date(decoded.exp * 1000) < new Date()) {
+        throw new Error("Token has expired");
+      }
+
+      // Server verification
+      const response = await fetch(cleanUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token, fileId: id }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Token verification failed");
+      }
+
+      const data = await response.json();
+      if (!data.valid) {
+        throw new Error("Token is not valid for this folder");
+      }
+
+      setIsVerified(true);
+      setError(null);
+    } catch (err) {
+      setError({ message: err.message });
+      setIsVerified(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadFolderAsZip = async (withWatermark = true) => {
+    try {
+      setLoading(true);
+      setDownloadProgress(0);
+      setError(null);
+
+      let endpoint = withWatermark
+        ? `${apiBase}/api/folder/${id}/watermark-zip`
+        : `${apiBase}/api/folder/${id}/clean-zip`;
+
+      // For clean downloads, include token in Authorization header
+      const options = {
+        headers: {}
+      };
+      
+      if (!withWatermark) {
+        options.headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(endpoint, options);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Download failed");
+      }
+
+      // Handle the download
+      const contentDisposition = response.headers.get("content-disposition");
+      const filename = contentDisposition
+        ? contentDisposition.split("filename=")[1].replace(/"/g, "")
+        : `folder-${id}.zip`;
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError({
+        message: "Download failed",
+        details: err.message,
+      });
+      console.error("Download error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -109,12 +224,17 @@ export default function FolderViewer() {
         const response = await fetch(`${apiBase}/api/drive-folder/${id}`);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Server responded with ${response.status}`);
+          throw new Error(
+            errorData.error || `Server responded with ${response.status}`
+          );
         }
         const data = await response.json();
         setFiles(data);
       } catch (err) {
-        setError({ message: err.message, details: "Please check console for more details" });
+        setError({
+          message: err.message,
+          details: "Please check console for more details",
+        });
       } finally {
         setLoading(false);
       }
@@ -146,16 +266,107 @@ export default function FolderViewer() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         {files.length === 0 && !loading ? (
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-            <h3 className="mt-2 text-lg font-medium text-gray-900">No files found</h3>
-            <p className="mt-1 text-sm text-gray-500">The folder appears to be empty</p>
+            <h3 className="mt-2 text-lg font-medium text-gray-900">
+              No files found
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              The folder appears to be empty
+            </p>
           </div>
         ) : (
           <>
             <div className="mb-8 text-center">
-              <h2 className="text-3xl font-light text-white mb-2">FOLDER CONTENT</h2>
+              <div className="flex justify-between items-center mb-4">
+                <button
+                  onClick={() => navigate(-1)}
+                  className="px-4 py-2 text-white hover:bg-gray-800 rounded-none bg-gray-300 text-sm cursor-pointer"
+                >
+                  Back
+                </button>
+                <h2 className="text-3xl font-light text-white mb-2">
+                  FOLDER CONTENT
+                </h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => downloadFolderAsZip(true)}
+                    disabled={files.length === 0 || loading}
+                    className={`px-4 py-2 rounded-none text-sm font-medium ${
+                      files.length === 0 || loading
+                        ? "bg-gray-500 text-gray-300 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                  >
+                    Download with Watermark
+                  </button>
+                  <button
+                    onClick={() => downloadFolderAsZip(false)}
+                    disabled={loading || !isVerified}
+                    className={`px-4 py-2 rounded-none text-sm font-medium ${
+                      loading || !isVerified
+                        ? "bg-gray-500 text-gray-300 cursor-not-allowed"
+                        : "bg-green-600 text-white hover:bg-green-700"
+                    }`}
+                  >
+                    {loading
+                      ? "PREPARING..."
+                      : isVerified
+                      ? "Download Clean"
+                      : "Verify Token First"}
+                  </button>
+                  <Link to={`/folder-generate-token/${id}`}>
+                    <button className="px-4 py-2 bg-gray-300 text-black text-sm font-medium rounded-none hover:bg-gray-400 transition-colors">
+                      GET TOKEN
+                    </button>
+                  </Link>
+                </div>
+              </div>
               <p className="text-gray-400 max-w-2xl mx-auto">
-                Navigate folders or view premium media content
+                {files.length} items in this folder
               </p>
+
+              {/* Token Verification Section */}
+              <div className="mt-4 bg-white p-4 max-w-md mx-auto">
+                <h3 className="font-medium text-sm mb-2">
+                  VERIFY YOUR TOKEN TO GET WITHOUT WATERMARK FILE
+                </h3>
+                {error && (
+                  <div className="text-red-500 text-xs mb-2">
+                    {error.message}
+                  </div>
+                )}
+                {isVerified && (
+                  <div className="text-green-500 text-xs mb-2">
+                    Token verified! You can download clean files.
+                  </div>
+                )}
+                <div className="flex flex-col md:flex-row gap-2">
+                  <input
+                    type="text"
+                    placeholder="Paste your access token here"
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    className="flex-1 border border-gray-300 p-2 text-xs focus:outline-none focus:border-black"
+                    disabled={isVerified || loading}
+                  />
+                  <button
+                    onClick={handleVerifyToken}
+                    disabled={loading || isVerified}
+                    className={`py-2 px-4 text-xs font-medium rounded-none uppercase tracking-wider whitespace-nowrap ${
+                      loading
+                        ? "bg-gray-300 text-gray-500"
+                        : isVerified
+                        ? "bg-green-500 text-white"
+                        : "bg-black text-white hover:bg-gray-800"
+                    }`}
+                  >
+                    {loading
+                      ? "VERIFYING..."
+                      : isVerified
+                      ? "VERIFIED"
+                      : "VERIFY"}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <motion.div
@@ -193,14 +404,18 @@ export default function FolderViewer() {
                       <span className="text-sm font-medium text-gray-900 truncate">
                         {file.name.split(".")[0]}
                       </span>
-                      <span className="text-xs text-gray-500">{formatDate(file.modifiedTime)}</span>
+                      <span className="text-xs text-gray-500">
+                        {formatDate(file.modifiedTime)}
+                      </span>
                     </div>
 
                     <div className="space-y-3 mb-4">
                       <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
                         <div>
                           <p className="text-xs font-medium">TYPE</p>
-                          <p className="text-xs text-gray-500">{getFileType(file).toUpperCase()}</p>
+                          <p className="text-xs text-gray-500">
+                            {getFileType(file).toUpperCase()}
+                          </p>
                         </div>
                         <span className="text-sm font-bold">
                           {getFileType(file) === "folder" ? "VIEW" : "DOWNLOAD"}
