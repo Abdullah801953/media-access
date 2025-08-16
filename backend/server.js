@@ -39,6 +39,8 @@ const allowedOrigins = [
   "http://localhost:5174",
   "https://media-access.vercel.app",
   "https://media-access-3pjy.vercel.app",
+  "https://portfolio.oneshootproduction.in",
+  "https://admin.oneshootproduction.in"
 ];
 
 // Verify watermark exists before starting server

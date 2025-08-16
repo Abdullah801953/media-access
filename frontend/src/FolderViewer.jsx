@@ -42,7 +42,7 @@ export default function FolderViewer() {
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
-      : "https://media-access.onrender.com";
+      : "https://admin.oneshootproduction.in";
 
   const cleanUrl = `${apiBase}/api/verify-folder-token`;
   const formatDate = (dateString) => {

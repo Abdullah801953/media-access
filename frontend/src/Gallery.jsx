@@ -61,7 +61,7 @@ export default function DriveViewer() {
   const [apiBase] = useState(
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
-      : "https://media-access.onrender.com"
+      : "https://admin.oneshootproduction.in"
   );
 
   useEffect(() => {

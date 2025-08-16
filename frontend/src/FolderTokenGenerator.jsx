@@ -18,7 +18,7 @@ export default function FolderTokenGenerator() {
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
-      : "https://media-access.onrender.com";
+      : "https://admin.oneshootproduction.in";
 
   const handleGenerateToken = async () => {
     try {

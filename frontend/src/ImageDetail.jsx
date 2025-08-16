@@ -13,7 +13,7 @@ export default function ImageDetail() {
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
-      : "https://media-access.onrender.com";
+      : "https://admin.oneshootproduction.in";
   const watermarkedUrl = `${apiBase}/api/file/${id}/watermark`;
   const cleanUrl = `${apiBase}/api/download/${id}`;
 
