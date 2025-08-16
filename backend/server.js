@@ -202,6 +202,49 @@ async function applyWatermark(imageBuffer) {
   }
 }
 
+// Video watermark function
+function applyVideoWatermark(videoBuffer) {
+  return new Promise((resolve, reject) => {
+    const inputStream = new stream.PassThrough();
+    inputStream.end(videoBuffer);
+
+    const chunks = [];
+    const watermarkPath = path.resolve(__dirname, "watermarks/logo2.png");
+
+    ffmpeg(inputStream)
+      .input(watermarkPath)
+      .complexFilter([
+        {
+          filter: "overlay",
+          options: {
+            x: "(main_w-overlay_w)/2", // center horizontally
+            y: "(main_h-overlay_h)/2", // center vertically
+          },
+        },
+      ])
+      .videoCodec("libx264")
+      .audioCodec("copy")
+      .outputOptions([
+        "-movflags frag_keyframe+empty_moov",
+        "-preset ultrafast",
+        "-crf 30",
+        "-pix_fmt yuv420p",
+        "-threads 0",
+      ])
+      .format("mp4")
+      .on("error", (err) => {
+        console.error("FFmpeg video watermark error:", err.message);
+        reject(err);
+      })
+      .on("end", () => {
+        resolve(Buffer.concat(chunks));
+      })
+      .pipe(
+        new stream.PassThrough().on("data", (chunk) => chunks.push(chunk))
+      );
+  });
+}
+
 // Watermark endpoint with better error handling
 app.get("/api/file/:id/watermark", async (req, res) => {
   const fileId = req.params.id;

@@ -26,12 +26,7 @@ const Navbar = () => {
           >
             Gallery
           </Link>
-          <a
-            href="#"
-            className="text-sm font-medium text-gray-700 hover:text-black"
-          >
-            Collections
-          </a>
+          
           <a
             href="#"
             className="text-sm font-medium text-gray-700 hover:text-black"
