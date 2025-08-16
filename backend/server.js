@@ -8,12 +8,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import sharp from "sharp";
 import { connectDB } from "./utils/db.js";
-import helmet from "helmet";
 import morgan from "morgan";
 import stream from "stream";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import ffmpeg from "fluent-ffmpeg";
-import { PassThrough } from "stream";
 import archiver from "archiver";
 import fs from "fs";
 import { pipeline } from "stream";
@@ -36,6 +34,13 @@ const app = express();
 
 const watermarkPath = path.resolve(__dirname, "watermarks", "logo.png");
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "https://media-access.vercel.app",
+  "https://media-access-3pjy.vercel.app",
+];
+
 // Verify watermark exists before starting server
 if (!fs.existsSync(watermarkPath)) {
   console.error(`Watermark not found at: ${watermarkPath}`);
@@ -45,11 +50,17 @@ if (!fs.existsSync(watermarkPath)) {
   process.exit(1);
 }
 
-app.use(cors());
-
 app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
+  cors({
+    origin: function (origin, callback) {
+      // origin null ho sakta hai (Postman ya server-to-server requests ke liye)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true, // agar cookies ya authentication headers use kar rahe ho
   })
 );
 
@@ -303,7 +314,6 @@ app.get("/api/file/:id/watermark", async (req, res) => {
 
     // 4️⃣ Unsupported file types
     return res.status(400).json({ error: "Unsupported file type" });
-
   } catch (error) {
     console.error(`Watermark failed for ${fileId}:`, error.message);
     if (!res.headersSent) {
