@@ -166,57 +166,44 @@ export default function FolderViewer() {
     }
   };
 
-  const downloadFolderAsZip = async (withWatermark = true) => {
-    try {
-      setLoading(true);
-      setDownloadProgress(0);
-      setError(null);
+ const downloadFolderAsZip = (withWatermark = true) => {
+  try {
+    setLoading(true);
+    setError(null);
 
-      let endpoint = withWatermark
-        ? `${apiBase}/api/folder/${id}/watermark-zip`
-        : `${apiBase}/api/folder/${id}/clean-zip`;
+    // API endpoint set karo
+    let endpoint = withWatermark
+      ? `${apiBase}/api/folder/${id}/watermark-zip`
+      : `${apiBase}/api/folder/${id}/clean-zip`;
 
-      // For clean downloads, include token in Authorization header
-      const options = {
-        headers: {}
-      };
-      
-      if (!withWatermark) {
-        options.headers.Authorization = `Bearer ${token}`;
-      }
-
-      const response = await fetch(endpoint, options);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Download failed");
-      }
-
-      // Handle the download
-      const contentDisposition = response.headers.get("content-disposition");
-      const filename = contentDisposition
-        ? contentDisposition.split("filename=")[1].replace(/"/g, "")
-        : `folder-${id}.zip`;
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError({
-        message: "Download failed",
-        details: err.message,
-      });
-      console.error("Download error:", err);
-    } finally {
-      setLoading(false);
+    // Agar clean download hai to token ko query param me bhejo
+    if (!withWatermark) {
+      endpoint += `?token=${encodeURIComponent(token)}`;
     }
-  };
+
+    // Browser me direct streaming download trigger karo
+    const link = document.createElement("a");
+    link.href = endpoint;
+    link.setAttribute("download", ""); // Filename server se milega
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    // Loading ko thoda delay se false karo taaki UI smooth lage
+    setTimeout(() => {
+      setLoading(false);
+    }, 1000);
+
+  } catch (err) {
+    console.error("Download error:", err);
+    setError({
+      message: "Download failed",
+      details: err.message
+    });
+    setLoading(false);
+  }
+};
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -296,7 +283,7 @@ export default function FolderViewer() {
                         : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
                   >
-                    Download with Watermark
+                    Download Folder with Watermark
                   </button>
                   <button
                     onClick={() => downloadFolderAsZip(false)}

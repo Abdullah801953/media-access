@@ -16,6 +16,10 @@ import ffmpeg from "fluent-ffmpeg";
 import { PassThrough } from "stream";
 import archiver from "archiver";
 import fs from "fs";
+import { pipeline } from "stream";
+import { promisify } from "util";
+
+const streamPipeline = promisify(pipeline);
 
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
@@ -188,68 +192,6 @@ async function applyWatermark(imageBuffer) {
   }
 }
 
-async function handleVideoWatermarking(req, res, fileId, mimeType) {
-  try {
-    console.log(`Using watermark at: ${watermarkPath}`);
-
-    // Set proper headers for streaming
-    res.setHeader("Content-Type", mimeType);
-
-    // Get readable stream from Google Drive
-    const driveResponse = await drive.files.get(
-      { fileId, alt: "media" },
-      { responseType: "stream" }
-    );
-
-    // Create FFmpeg command with proper filter syntax
-    const command = ffmpeg()
-      .input(driveResponse.data)
-      .inputFormat("mp4")
-      .videoCodec("libx264")
-      .audioCodec("aac")
-      .outputOptions([
-        "-movflags frag_keyframe+empty_moov",
-        "-f mp4",
-        "-preset fast",
-        "-crf 23",
-      ])
-      .on("start", (cmd) => console.log("FFmpeg command:", cmd))
-      .on("error", (err, stdout, stderr) => {
-        console.error("FFmpeg Error:", err);
-        console.error("FFmpeg Output:", stdout);
-        console.error("FFmpeg Errors:", stderr);
-        if (!res.headersSent) {
-          res.status(500).json({
-            error: "Video processing failed",
-            details: stderr || err.message,
-          });
-        }
-      });
-
-    // Correct complex filter syntax - simplified and fixed
-    command.complexFilter(
-      [
-        `movie=${watermarkPath
-          .replace(/\\/g, "/")
-          .replace(/:/g, "\\:")}[watermark]`,
-        "[0:v][watermark]overlay=W-w-10:H-h-10[out]",
-      ],
-      "[out]"
-    );
-
-    // Pipe to response
-    command.output(res, { end: true });
-  } catch (error) {
-    console.error("Processing error:", error);
-    if (!res.headersSent) {
-      res.status(500).json({
-        error: "Video processing failed",
-        details: error.message,
-      });
-    }
-  }
-}
-
 // Video watermark function
 function applyVideoWatermark(videoBuffer) {
   return new Promise((resolve, reject) => {
@@ -284,35 +226,93 @@ app.get("/api/file/:id/watermark", async (req, res) => {
   console.log(`Processing watermark for file: ${fileId}`);
 
   try {
+    // 1️⃣ Get file metadata
     const fileMeta = await drive.files.get({
       fileId,
       fields: "mimeType, name, size",
     });
 
     const mimeType = fileMeta.data.mimeType;
-    const fileSize = fileMeta.data.size;
-    console.log(`File MIME type: ${mimeType}, Size: ${fileSize} bytes`);
+    const fileName = fileMeta.data.name;
+    const fileSize = parseInt(fileMeta.data.size, 10);
 
+    // ✅ Set download headers
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="watermarked-${fileName}"`
+    );
+    res.setHeader("Cache-Control", "no-cache");
+
+    // 2️⃣ Image files
     if (mimeType.startsWith("image/")) {
       const { data } = await drive.files.get(
         { fileId, alt: "media" },
         { responseType: "arraybuffer" }
       );
-      const watermarkedImage = await applyWatermark(Buffer.from(data));
-      res.set("Content-Type", mimeType);
-      return res.send(watermarkedImage);
-    } else if (mimeType.startsWith("video/")) {
-      return handleVideoWatermarking(req, res, fileId, mimeType);
-    } else {
-      return res.status(400).json({ error: "Unsupported file type" });
+      const processedBuffer = await applyWatermark(Buffer.from(data));
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("Content-Length", processedBuffer.length);
+      return res.send(processedBuffer);
     }
+
+    // 3️⃣ Video files
+    if (mimeType.startsWith("video/")) {
+      const { data: driveStream } = await drive.files.get(
+        { fileId, alt: "media" },
+        { responseType: "stream" }
+      );
+
+      res.setHeader("Content-Type", "video/mp4");
+
+      const ffmpegProcess = ffmpeg(driveStream)
+        .inputFormat(mimeType.split("/")[1])
+        .videoCodec("libx264")
+        .audioCodec("copy") // audio re-encode nahi karega
+        .outputOptions([
+          "-movflags frag_keyframe+empty_moov",
+          "-preset ultrafast",
+          "-crf 30",
+          "-pix_fmt yuv420p",
+          "-threads 0",
+        ])
+        .videoFilters({
+          filter: "drawtext",
+          options: {
+            text: "One ShootProductions",
+            x: "(w-tw)/2",
+            y: "h-th-10",
+            fontsize: 24,
+            fontcolor: "white",
+            box: 1,
+            boxcolor: "black@0.5",
+            boxborderw: 5,
+          },
+        })
+        .format("mp4")
+        .on("error", (err) => {
+          console.error("FFmpeg error:", err.message);
+          if (!res.headersSent) {
+            res.status(500).json({ error: "Video processing failed" });
+          }
+        });
+
+      // Pipe processed video directly to response
+      ffmpegProcess.pipe(res, { end: true });
+      return;
+    }
+
+    // 4️⃣ Unsupported file types
+    return res.status(400).json({ error: "Unsupported file type" });
+
   } catch (error) {
     console.error(`Watermark failed for ${fileId}:`, error.message);
-    return res.status(500).json({
-      error: "Error adding watermark",
-      fileId,
-      details: error.message,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Error adding watermark",
+        fileId,
+        details: error.message,
+      });
+    }
   }
 });
 
@@ -387,8 +387,8 @@ app.post("/api/generate-token", async (req, res) => {
     } else {
       // Create new user and token
       const token = jwt.sign(
-        { email: email.trim(), fileId ,fileType },
-        process.env.JWT_SECRET,
+        { email: email.trim(), fileId, fileType },
+        process.env.JWT_SECRET
       );
 
       user = new User({
@@ -436,29 +436,51 @@ app.get("/api/download/:id", async (req, res) => {
     // Verify JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // STRICT FILE MATCHING - no more general tokens
+    // Match token with file
     if (decoded.fileId !== fileId) {
       return res.status(403).json({
-        error: "This token is not valid for the requested file",
+        error: "Token not valid for this file",
         validForFile: decoded.fileId,
       });
     }
 
-    // Verify token exists in database for this specific file
+    // Check DB token
     const user = await User.findOne({
       "tokens.token": token,
       "tokens.fileId": fileId,
     });
-
     if (!user) {
       return res.status(403).json({ error: "Token not found or invalid" });
     }
 
-    // Serve the file
+    // ✅ Get file metadata (for correct filename & size)
+    const fileMeta = await drive.files.get({
+      fileId,
+      fields: "name, size, mimeType",
+    });
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileMeta.data.name}"`
+    );
+    res.setHeader(
+      "Content-Type",
+      fileMeta.data.mimeType || "application/octet-stream"
+    );
+    res.setHeader("Content-Length", fileMeta.data.size);
+
+    // ✅ Stream file directly to client
     const { data } = await drive.files.get(
       { fileId, alt: "media" },
       { responseType: "stream" }
     );
+
+    data.on("error", (err) => {
+      console.error("Stream error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "File streaming failed" });
+      }
+    });
 
     data.pipe(res);
   } catch (err) {
@@ -774,7 +796,16 @@ app.get("/api/folder/:id/clean-zip", async (req, res) => {
   const folderId = req.params.id;
   console.log(`Processing clean ZIP for folder: ${folderId}`);
 
+  // Set timeout
+  req.setTimeout(300000, () => {
+    console.log("Request timeout");
+    if (!res.headersSent) {
+      res.status(504).json({ error: "Request timeout" });
+    }
+  });
+
   try {
+    // 1️⃣ Get all files from the folder
     const filesList = await drive.files.list({
       q: `'${folderId}' in parents and trashed=false`,
       fields: "files(id, name, mimeType)",
@@ -785,40 +816,64 @@ app.get("/api/folder/:id/clean-zip", async (req, res) => {
       return res.status(404).json({ error: "No files found in folder" });
     }
 
+    // 2️⃣ Prepare ZIP response
     const zipFileName = `folder_${folderId}_clean.zip`;
-    res.setHeader("Content-Disposition", `attachment; filename="${zipFileName}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${zipFileName}"`
+    );
     res.setHeader("Content-Type", "application/zip");
 
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = archiver("zip", {
+      zlib: { level: 9 },
+      highWaterMark: 1024 * 1024, // 1MB buffer
+    });
+
+    // Error handling
+    archive.on("error", (err) => {
+      console.error("Archive error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Archive creation failed" });
+      }
+    });
+
+    // Progress tracking
+    archive.on("progress", (progress) => {
+      console.log(
+        `Processed ${progress.entries.processed} of ${filesList.data.files.length} files`
+      );
+    });
+
     archive.pipe(res);
 
+    // 3️⃣ Add each file using streams
     for (const file of filesList.data.files) {
       try {
         console.log(`Adding ${file.name} (${file.mimeType}) to clean ZIP`);
 
-        const driveStream = await drive.files.get(
+        const fileStream = await drive.files.get(
           { fileId: file.id, alt: "media" },
-          { responseType: "stream" } // streaming mode
+          { responseType: "stream" }
         );
 
-        archive.append(driveStream.data, { name: file.name });
+        archive.append(fileStream.data, { name: file.name });
       } catch (fileError) {
         console.error(`Error adding ${file.name}:`, fileError.message);
       }
     }
 
+    // 4️⃣ Finalize ZIP
     archive.finalize();
   } catch (error) {
     console.error(`Clean ZIP failed for ${folderId}:`, error.message);
-    res.status(500).json({
-      error: "Error creating clean ZIP",
-      details: error.message,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Error creating clean ZIP",
+        details: error.message,
+      });
+    }
   }
 });
-
-
-
 
 // Start server
 

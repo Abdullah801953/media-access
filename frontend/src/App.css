@@ -2,3 +2,10 @@
 body{
     background-color: black;
 }
+.back-side {
+  transform: rotateY(360deg);
+}
+
+.back-side .back-content {
+  transform: rotateY(180deg);
+}

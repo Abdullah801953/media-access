@@ -30,9 +30,12 @@ export default function ImageDetail() {
       }
 
       // Server verification
-      const response = await fetch(`${cleanUrl}?token=${encodeURIComponent(token)}`, {
-        method: 'HEAD' // Just check headers, don't download content
-      });
+      const response = await fetch(
+        `${cleanUrl}?token=${encodeURIComponent(token)}`,
+        {
+          method: "HEAD", // Just check headers, don't download content
+        }
+      );
 
       if (!response.ok) {
         throw new Error("Token verification failed");
@@ -47,43 +50,31 @@ export default function ImageDetail() {
     }
   };
 
- const handleDownload = async (withWatermark = false) => {
+const handleDownload = (withWatermark = false) => {
   try {
     setLoading(true);
     setError(null);
 
-    let downloadUrl;
-    if (withWatermark) {
-      downloadUrl = watermarkedUrl;
-    } else {
-      if (!isVerified) {
-        throw new Error("Please verify your token first");
-      }
-      downloadUrl = `${cleanUrl}?token=${encodeURIComponent(token)}`;
-    }
+    const downloadUrl = withWatermark
+      ? `${watermarkedUrl}?token=${encodeURIComponent(token)}`
+      : `${cleanUrl}?token=${encodeURIComponent(token)}`;
 
-    // Fetch as blob
-    const response = await fetch(downloadUrl);
-    if (!response.ok) {
-      throw new Error("Download failed");
-    }
-
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-
-    // Create temporary anchor element
+    // ✅ Create a temporary <a> element
     const link = document.createElement("a");
-    link.href = url;
-    link.download = fileInfo?.name || "download";
+    link.href = downloadUrl;
+
+    // Let the browser decide the filename or you can force one:
+    // link.download = "myfile.mp4"; // optional
+    link.target = "_blank"; // ensures some browsers respect download
+
+    // Append, click, and remove
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    // Cleanup object URL
-    window.URL.revokeObjectURL(url);
+    setLoading(false);
   } catch (err) {
     setError(err.message);
-  } finally {
     setLoading(false);
   }
 };
@@ -140,15 +131,17 @@ export default function ImageDetail() {
               <p className="text-xs text-gray-600 mb-2">
                 Preview with watermark
               </p>
-              <button
-                onClick={() => handleDownload(true)}
-                disabled={loading}
-                className={`w-full py-1.5 bg-black text-white text-xs font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider ${
-                  loading ? "opacity-50" : ""
+              <a
+                href={`${watermarkedUrl}?token=${encodeURIComponent(token)}`} // dynamic URL
+                download // browser decides filename, ya server se filename aaye
+                className={`w-full py-1.5 bg-black text-white text-xs font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider inline-block text-center ${
+                  loading
+                    ? "opacity-50 pointer-events-none cursor-not-allowed"
+                    : ""
                 }`}
               >
-                DOWNLOAD
-              </button>
+                {loading ? "Downloading..." : "DOWNLOAD"}
+              </a>
             </div>
 
             {/* Generate Token */}
@@ -167,9 +160,7 @@ export default function ImageDetail() {
             {/* Clean Download */}
             <div className="border border-gray-200 p-3 hover:bg-gray-50 transition cursor-pointer">
               <h3 className="font-medium text-sm mb-1">ORIGINAL QUALITY</h3>
-              <p className="text-xs text-gray-600 mb-2">
-                Full quality version
-              </p>
+              <p className="text-xs text-gray-600 mb-2">Full quality version</p>
               <button
                 onClick={() => handleDownload(false)}
                 disabled={loading || !isVerified}
@@ -191,9 +182,7 @@ export default function ImageDetail() {
           {/* Token Verification Section */}
           <div className="border-t border-gray-200 pt-4">
             <h3 className="font-medium text-sm mb-2">VERIFY YOUR TOKEN</h3>
-            {error && (
-              <div className="text-red-500 text-xs mb-2">{error}</div>
-            )}
+            {error && <div className="text-red-500 text-xs mb-2">{error}</div>}
             {isVerified && (
               <div className="text-green-500 text-xs mb-2">
                 Token verified! You can now download the original files.

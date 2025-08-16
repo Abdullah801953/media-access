@@ -16,7 +16,9 @@ export default function FolderTokenGenerator() {
 
   const navigate = useNavigate();
   const apiBase =
-    window.location.hostname === "localhost" ? "http://localhost:5000" : "https://media-access.onrender.com";
+    window.location.hostname === "localhost"
+      ? "http://localhost:5000"
+      : "https://media-access.onrender.com";
 
   const handleGenerateToken = async () => {
     try {
@@ -44,7 +46,7 @@ export default function FolderTokenGenerator() {
           name: name.trim(),
           email: email.trim(),
           message: message.trim(),
-          fileId: fileId, 
+          fileId: fileId,
         }),
       });
 
@@ -71,7 +73,11 @@ export default function FolderTokenGenerator() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-      <div className="bg-white rounded-none shadow-lg w-full max-w-sm overflow-hidden">
+      <div
+        className={`bg-white rounded-none shadow-lg w-full max-w-sm overflow-hidden transition-all duration-300 ${
+          showBackSide ? "rotate-y-180" : ""
+        }`}
+      >
         {!showBackSide ? (
           <div className="front-side">
             <div className="bg-black text-white text-center py-3 font-semibold text-lg">
@@ -111,8 +117,6 @@ export default function FolderTokenGenerator() {
                 rows="2"
               />
 
-             
-
               <button
                 onClick={handleGenerateToken}
                 disabled={loading || !name || !email}
@@ -128,75 +132,70 @@ export default function FolderTokenGenerator() {
           </div>
         ) : (
           <div className="back-side">
-            <div className="bg-white p-4 border-b">
-              <div className="flex justify-between items-center">
-                <button
-                  onClick={startNewTransfer}
-                  className="flex items-center gap-1 text-black hover:bg-gray-200 p-1 rounded"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
+            <div className="back-content">
+              <div className="bg-white p-4">
+                <div className="flex justify-between items-center">
+                  <button
+                    onClick={startNewTransfer}
+                    className="flex items-center gap-1 text-black hover:bg-gray-200 p-1 rounded"
+                  >
+                    <ArrowLeft className="h-5 w-5" />
+                  </button>
+                  <div className="text-center">
+                    <div className="text-lg">Token Generated</div>
+                    <div className="text-sm opacity-90">
+                      Your download token is ready
+                    </div>
+                  </div>
+                  <div className="w-5"></div>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
                 <div className="text-center">
-                  <div className="text-lg font-medium">Folder Access Token</div>
-                  <div className="text-sm text-gray-500">
-                    Copy and use this token
+                  <div className="text-xl font-bold mb-1">
+                    Contact Admin For Token
                   </div>
-                </div>
-                <div className="w-5"></div>
-              </div>
-            </div>
+                  <p className="text-gray-600 mb-4">
+                    {message || "No specific purpose provided"}
+                  </p>
 
-            <div className="p-6 space-y-6">
-              <div className="text-center">
-                <div className="text-xl font-bold mb-1">
-                  Your Folder Access Token
+                  <div className="bg-gray-100 rounded-lg p-4 mb-4">
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-600">Name</span>
+                      <span className="font-medium">{name}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-600">Email</span>
+                      <span className="font-medium">{email}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Expires in</span>
+                      <span className="font-medium">
+                        {expiryDays} day{expiryDays !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-gray-600 mb-4">
-                  {message || "No specific purpose provided"}
-                </p>
 
-                <div className="bg-gray-100 rounded-lg p-4 mb-4">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">Name</span>
-                    <span className="font-medium">{name}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">Email</span>
-                    <span className="font-medium">{email}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Expires in</span>
-                    <span className="font-medium">
-                      {expiryDays} day{expiryDays !== 1 ? "s" : ""}
-                    </span>
-                  </div>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+                  <button
+                    className="w-full bg-black text-white rounded-none py-2 text-sm font-medium hover:bg-gray-800"
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedToken);
+                      alert("Token copied to clipboard!");
+                    }}
+                  >
+                    Contact
+                  </button>
                 </div>
-              </div>
 
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
-                <div className="bg-gray-100 p-3 rounded text-sm font-mono break-all mb-3 text-center">
-                  {generatedToken}
-                </div>
                 <button
-                  className="w-full bg-black text-white rounded-none py-3 text-sm font-medium hover:bg-gray-800 mb-2"
-                  onClick={() => {
-                    navigator.clipboard.writeText(generatedToken);
-                    alert("Token copied to clipboard!");
-                  }}
+                  className="w-full bg-blue-600 text-white rounded-none py-2 text-sm font-medium hover:bg-blue-700"
+                  onClick={() => navigate(`/folder/${fileId}`)}
                 >
-                  Copy Token
+                  Apply Token
                 </button>
-                <button
-                  className="w-full border border-black text-black rounded-none py-3 text-sm font-medium hover:bg-gray-100"
-                  onClick={() => navigate(`/folder/${folderId}`)}
-                >
-                  Go to Folder
-                </button>
-              </div>
-
-              <div className="text-xs text-gray-500 text-center">
-                <p>This token provides access to download files without watermarks</p>
-                <p className="mt-1">Share it only with authorized recipients</p>
               </div>
             </div>
           </div>
