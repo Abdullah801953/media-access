@@ -267,9 +267,14 @@ export default function DriveViewer() {
                       </div>
                     </div>
 
-                    <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
-                      {getFileType(file) === "folder" ? "OPEN" : "INQUIRE"}
-                    </button>
+                    <a
+                      href={`/folder/${file.id}`} // dynamic folder link
+                      rel="noopener noreferrer"
+                    >
+                      <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
+                        {getFileType(file) === "folder" ? "OPEN" : "INQUIRE"}
+                      </button>
+                    </a>
                   </div>
                 </motion.div>
               ))}

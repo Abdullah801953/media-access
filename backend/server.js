@@ -179,10 +179,9 @@ async function applyWatermark(imageBuffer) {
     // Watermark resize: exactly cover the whole image
     const watermarkBuffer = await sharp(watermarkPath)
       .resize(metadata.width, metadata.height, {
-        fit: "cover", // completely fill the image area
-        withoutEnlargement: true,
+        fit: "inside",
       })
-      .png() // ensure transparency is preserved
+      .png()
       .toBuffer();
 
     // Apply single centered watermark
@@ -203,41 +202,13 @@ async function applyWatermark(imageBuffer) {
   }
 }
 
-// Video watermark function
-function applyVideoWatermark(videoBuffer) {
-  return new Promise((resolve, reject) => {
-    const inputStream = new stream.PassThrough();
-    inputStream.end(videoBuffer);
-
-    const outputStream = new stream.PassThrough();
-    const chunks = [];
-
-    ffmpeg(inputStream)
-      .input(path.resolve(__dirname, "watermarks/logo2.png")) // watermark image
-      .complexFilter(["overlay=10:10"]) // position of watermark
-      .format("mp4")
-      .outputOptions(["-movflags frag_keyframe+empty_moov"]) // streaming friendly
-      .on("error", (err) => {
-        console.error("FFmpeg error:", err);
-        reject(err);
-      })
-      .on("end", () => {
-        console.log("✅ Video watermarking complete");
-        resolve(Buffer.concat(chunks));
-      })
-      .pipe(outputStream);
-
-    outputStream.on("data", (chunk) => chunks.push(chunk));
-  });
-}
-
 // Watermark endpoint with better error handling
 app.get("/api/file/:id/watermark", async (req, res) => {
   const fileId = req.params.id;
   console.log(`Processing watermark for file: ${fileId}`);
 
   try {
-    // 1️⃣ Get file metadata
+    // 1️⃣ Get file metadata from Google Drive
     const fileMeta = await drive.files.get({
       fileId,
       fields: "mimeType, name, size",
@@ -245,16 +216,14 @@ app.get("/api/file/:id/watermark", async (req, res) => {
 
     const mimeType = fileMeta.data.mimeType;
     const fileName = fileMeta.data.name;
-    const fileSize = parseInt(fileMeta.data.size, 10);
 
-    // ✅ Set download headers
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="watermarked-${fileName}"`
     );
     res.setHeader("Cache-Control", "no-cache");
 
-    // 2️⃣ Image files
+    // ===== IMAGE FILE =====
     if (mimeType.startsWith("image/")) {
       const { data } = await drive.files.get(
         { fileId, alt: "media" },
@@ -266,7 +235,7 @@ app.get("/api/file/:id/watermark", async (req, res) => {
       return res.send(processedBuffer);
     }
 
-    // 3️⃣ Video files
+    // ===== VIDEO FILE =====
     if (mimeType.startsWith("video/")) {
       const { data: driveStream } = await drive.files.get(
         { fileId, alt: "media" },
@@ -275,10 +244,21 @@ app.get("/api/file/:id/watermark", async (req, res) => {
 
       res.setHeader("Content-Type", "video/mp4");
 
-      const ffmpegProcess = ffmpeg(driveStream)
-        .inputFormat(mimeType.split("/")[1])
+      const watermarkPath = path.resolve(__dirname, "watermarks/logo2.png");
+
+      ffmpeg(driveStream)
+        .input(watermarkPath)
+        .complexFilter([
+          {
+            filter: "overlay",
+            options: {
+              x: "(main_w-overlay_w)/2",
+              y: "(main_h-overlay_h)/2",
+            },
+          },
+        ])
         .videoCodec("libx264")
-        .audioCodec("copy") // audio re-encode nahi karega
+        .audioCodec("copy")
         .outputOptions([
           "-movflags frag_keyframe+empty_moov",
           "-preset ultrafast",
@@ -286,33 +266,19 @@ app.get("/api/file/:id/watermark", async (req, res) => {
           "-pix_fmt yuv420p",
           "-threads 0",
         ])
-        .videoFilters({
-          filter: "drawtext",
-          options: {
-            text: "One ShootProductions",
-            x: "(w-tw)/2",
-            y: "h-th-10",
-            fontsize: 24,
-            fontcolor: "white",
-            box: 1,
-            boxcolor: "black@0.5",
-            boxborderw: 5,
-          },
-        })
         .format("mp4")
         .on("error", (err) => {
           console.error("FFmpeg error:", err.message);
           if (!res.headersSent) {
             res.status(500).json({ error: "Video processing failed" });
           }
-        });
+        })
+        .pipe(res, { end: true });
 
-      // Pipe processed video directly to response
-      ffmpegProcess.pipe(res, { end: true });
       return;
     }
 
-    // 4️⃣ Unsupported file types
+    // ===== UNSUPPORTED FILE =====
     return res.status(400).json({ error: "Unsupported file type" });
   } catch (error) {
     console.error(`Watermark failed for ${fileId}:`, error.message);
@@ -324,6 +290,11 @@ app.get("/api/file/:id/watermark", async (req, res) => {
       });
     }
   }
+});
+
+// ====== START SERVER ======
+app.listen(4000, () => {
+  console.log("Server running on port 4000");
 });
 
 // Generate JWT token
