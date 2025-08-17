@@ -17,7 +17,7 @@ const AdminSignInForm = () => {
     setError('');
 
     try {
-      const response = await fetch('https://admin.oneshootproduction.in/api/admin/login', {
+      const response = await fetch('https://api.oneshootproduction.in/api/admin/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

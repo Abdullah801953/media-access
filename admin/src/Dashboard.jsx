@@ -13,7 +13,7 @@ export default function AdminPanel() {
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
-      : "https://admin.oneshootproduction.in";
+      : "https://api.oneshootproduction.in";
 
   useEffect(() => {
     const fetchUsers = async () => {

@@ -19,7 +19,7 @@ export default function DualSideFileTransfer() {
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
-      : "https://admin.oneshootproduction.in";
+      : "https://api.oneshootproduction.in";
 
   // In your token generation form
   const handleGenerateToken = async () => {
