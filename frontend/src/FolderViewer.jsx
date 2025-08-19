@@ -166,44 +166,42 @@ export default function FolderViewer() {
     }
   };
 
- const downloadFolderAsZip = (withWatermark = true) => {
-  try {
-    setLoading(true);
-    setError(null);
+  const downloadFolderAsZip = (withWatermark = true) => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    // API endpoint set karo
-    let endpoint = withWatermark
-      ? `${apiBase}/api/folder/${id}/watermark-zip`
-      : `${apiBase}/api/folder/${id}/clean-zip`;
+      // API endpoint set karo
+      let endpoint = withWatermark
+        ? `${apiBase}/api/folder/${id}/watermark-zip`
+        : `${apiBase}/api/folder/${id}/clean-zip`;
 
-    // Agar clean download hai to token ko query param me bhejo
-    if (!withWatermark) {
-      endpoint += `?token=${encodeURIComponent(token)}`;
-    }
+      // Agar clean download hai to token ko query param me bhejo
+      if (!withWatermark) {
+        endpoint += `?token=${encodeURIComponent(token)}`;
+      }
 
-    // Browser me direct streaming download trigger karo
-    const link = document.createElement("a");
-    link.href = endpoint;
-    link.setAttribute("download", ""); // Filename server se milega
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      // Browser me direct streaming download trigger karo
+      const link = document.createElement("a");
+      link.href = endpoint;
+      link.setAttribute("download", ""); // Filename server se milega
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
 
-    // Loading ko thoda delay se false karo taaki UI smooth lage
-    setTimeout(() => {
+      // Loading ko thoda delay se false karo taaki UI smooth lage
+      setTimeout(() => {
+        setLoading(false);
+      }, 1000);
+    } catch (err) {
+      console.error("Download error:", err);
+      setError({
+        message: "Download failed",
+        details: err.message,
+      });
       setLoading(false);
-    }, 1000);
-
-  } catch (err) {
-    console.error("Download error:", err);
-    setError({
-      message: "Download failed",
-      details: err.message
-    });
-    setLoading(false);
-  }
-};
-
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -262,22 +260,27 @@ export default function FolderViewer() {
           </div>
         ) : (
           <>
-            <div className="mb-8 text-center">
-              <div className="flex justify-between items-center mb-4">
+            <div className="mb-8 text-center px-2">
+              <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                {/* Back Button */}
                 <button
                   onClick={() => navigate(-1)}
-                  className="px-4 py-2 text-white hover:bg-gray-800 rounded-none bg-gray-300 text-sm cursor-pointer"
+                  className="px-4 py-2 text-white hover:bg-gray-800 rounded-none bg-gray-300 text-sm cursor-pointer w-full md:w-auto"
                 >
                   Back
                 </button>
-                <h2 className="text-3xl font-light text-white mb-2">
+
+                {/* Heading */}
+                <h2 className="text-2xl md:text-3xl font-light text-white mb-2 md:mb-0">
                   FOLDER CONTENT
                 </h2>
-                <div className="flex gap-2">
+
+                {/* Action Buttons */}
+                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                   <button
                     onClick={() => downloadFolderAsZip(true)}
                     disabled={files.length === 0 || loading}
-                    className={`px-4 py-2 rounded-none text-sm font-medium ${
+                    className={`px-4 py-2 rounded-none text-sm font-medium w-full sm:w-auto ${
                       files.length === 0 || loading
                         ? "bg-gray-500 text-gray-300 cursor-not-allowed"
                         : "bg-blue-600 text-white hover:bg-blue-700"
@@ -285,10 +288,11 @@ export default function FolderViewer() {
                   >
                     Download Folder with Watermark
                   </button>
+
                   <button
                     onClick={() => downloadFolderAsZip(false)}
                     disabled={loading || !isVerified}
-                    className={`px-4 py-2 rounded-none text-sm font-medium ${
+                    className={`px-4 py-2 rounded-none text-sm font-medium w-full sm:w-auto ${
                       loading || !isVerified
                         ? "bg-gray-500 text-gray-300 cursor-not-allowed"
                         : "bg-green-600 text-white hover:bg-green-700"
@@ -300,22 +304,28 @@ export default function FolderViewer() {
                       ? "Download Clean"
                       : "Verify Token First"}
                   </button>
-                  <Link to={`/folder-generate-token/${id}`}>
-                    <button className="px-4 py-2 bg-gray-300 text-black text-sm font-medium rounded-none hover:bg-gray-400 transition-colors">
+
+                  <Link
+                    to={`/folder-generate-token/${id}`}
+                    className="w-full sm:w-auto"
+                  >
+                    <button className="px-4 py-2 bg-gray-300 text-black text-sm font-medium rounded-none hover:bg-gray-400 transition-colors w-full sm:w-auto">
                       GET TOKEN
                     </button>
                   </Link>
                 </div>
               </div>
+
               <p className="text-gray-400 max-w-2xl mx-auto">
                 {files.length} items in this folder
               </p>
 
               {/* Token Verification Section */}
-              <div className="mt-4 bg-white p-4 max-w-md mx-auto">
+              <div className="mt-4 bg-white p-4 max-w-md mx-auto rounded-md">
                 <h3 className="font-medium text-sm mb-2">
                   VERIFY YOUR TOKEN TO GET WITHOUT WATERMARK FILE
                 </h3>
+
                 {error && (
                   <div className="text-red-500 text-xs mb-2">
                     {error.message}
@@ -326,19 +336,20 @@ export default function FolderViewer() {
                     Token verified! You can download clean files.
                   </div>
                 )}
-                <div className="flex flex-col md:flex-row gap-2">
+
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     placeholder="Paste your access token here"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
-                    className="flex-1 border border-gray-300 p-2 text-xs focus:outline-none focus:border-black"
+                    className="flex-1 border border-gray-300 p-2 text-xs focus:outline-none focus:border-black w-full"
                     disabled={isVerified || loading}
                   />
                   <button
                     onClick={handleVerifyToken}
                     disabled={loading || isVerified}
-                    className={`py-2 px-4 text-xs font-medium rounded-none uppercase tracking-wider whitespace-nowrap ${
+                    className={`py-2 px-4 text-xs font-medium rounded-none uppercase tracking-wider whitespace-nowrap w-full sm:w-auto ${
                       loading
                         ? "bg-gray-300 text-gray-500"
                         : isVerified
