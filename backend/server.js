@@ -181,7 +181,7 @@ async function applyWatermark(imageBuffer) {
     // Watermark resize: exactly cover the whole image
     const watermarkBuffer = await sharp(watermarkPath)
       .resize(metadata.width, metadata.height, {
-        fit: "fill",
+        fit: "inside",
       })
       .png()
       .toBuffer();
