@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { jwtDecode } from "jwt-decode";
+import { Copy } from "lucide-react";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -30,21 +31,63 @@ const LoadingScreen = () => (
   </div>
 );
 
+const DownloadLoader = ({ progress, status }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
+    <div className="text-center">
+      <div className="relative w-32 h-32 mx-auto mb-4">
+        <svg className="w-full h-full" viewBox="0 0 100 100">
+          <circle
+            className="text-gray-700 stroke-current"
+            strokeWidth="10"
+            cx="50"
+            cy="50"
+            r="40"
+            fill="transparent"
+          ></circle>
+          <circle
+            className="text-white stroke-current"
+            strokeWidth="10"
+            strokeLinecap="round"
+            cx="50"
+            cy="50"
+            r="40"
+            fill="transparent"
+            strokeDasharray="251.2"
+            strokeDashoffset={251.2 - (progress * 251.2) / 100}
+            transform="rotate(-90 50 50)"
+          ></circle>
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-white text-lg font-medium">{progress}%</span>
+        </div>
+      </div>
+      <h2 className="text-2xl font-light text-white">Preparing Download</h2>
+      <p className="text-gray-400 mt-2">
+        {status || "This may take a few moments..."}
+      </p>
+    </div>
+  </div>
+);
+
 export default function FolderViewer() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [files, setFiles] = useState([]);
+  const [filteredFiles, setFilteredFiles] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [downloadLoading, setDownloadLoading] = useState(false);
   const [error, setError] = useState(null);
   const [token, setToken] = useState("");
   const [isVerified, setIsVerified] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatus, setDownloadStatus] = useState("");
   const apiBase =
     window.location.hostname === "localhost"
       ? "http://localhost:5000"
       : "https://api.oneshootproduction.in";
 
   const cleanUrl = `${apiBase}/api/verify-folder-token`;
+
   const formatDate = (dateString) => {
     if (!dateString) return "—";
     const date = new Date(dateString);
@@ -55,6 +98,13 @@ export default function FolderViewer() {
     });
   };
 
+  const formatFileSize = (bytes) => {
+    if (!bytes) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  };
+
   const getFileType = (file) => {
     if (file.mimeType) {
       if (file.mimeType.startsWith("image/")) return "image";
@@ -63,6 +113,60 @@ export default function FolderViewer() {
         return "folder";
     }
     return "file";
+  };
+
+  // Function to copy file details to clipboard
+  const copyUrlToClipboard = (file) => {
+    const baseUrl = window.location.origin;
+    const fileType = getFileType(file);
+
+    let url;
+    if (fileType === "folder") {
+      url = `${baseUrl}/folder/${file.id}`;
+    } else {
+      url = `${baseUrl}/file-detail/${file.id}`;
+    }
+
+    navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        console.log("URL copied to clipboard:", url);
+      })
+      .catch((err) => {
+        console.error("Failed to copy URL:", err);
+      });
+  };
+
+  // Function to check if a folder contains images or videos
+  const checkFolderForMedia = async (folderId) => {
+    try {
+      const response = await fetch(`${apiBase}/api/drive-folder/${folderId}`);
+      if (!response.ok) return false;
+
+      const folderData = await response.json();
+      return folderData.some(
+        (file) =>
+          file.mimeType.startsWith("image/") ||
+          file.mimeType.startsWith("video/")
+      );
+    } catch (error) {
+      console.error("Error checking folder:", error);
+      return false;
+    }
+  };
+
+  // Get folder info (count files, images, videos)
+  const getFolderInfo = (folder) => {
+    // Count files that have this folder as parent
+    const filesInFolder = files.filter(f => f.parents && f.parents.includes(folder.id));
+    const imageCount = filesInFolder.filter(f => getFileType(f) === "image").length;
+    const videoCount = filesInFolder.filter(f => getFileType(f) === "video").length;
+    
+    return {
+      totalFiles: filesInFolder.length,
+      imageCount,
+      videoCount
+    };
   };
 
   const renderFilePreview = (file) => {
@@ -99,8 +203,9 @@ export default function FolderViewer() {
           </div>
         );
       case "folder":
+        const folderInfo = getFolderInfo(file);
         return (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100">
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-4">
             <svg
               className="w-16 h-16 text-gray-500"
               fill="currentColor"
@@ -108,6 +213,10 @@ export default function FolderViewer() {
             >
               <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
+            <div className="mt-2 text-xs text-gray-500 text-center">
+              {folderInfo.imageCount > 0 && <p>{folderInfo.imageCount} images</p>}
+              {folderInfo.videoCount > 0 && <p>{folderInfo.videoCount} videos</p>}
+            </div>
           </div>
         );
       default:
@@ -167,40 +276,21 @@ export default function FolderViewer() {
   };
 
   const downloadFolderAsZip = (withWatermark = true) => {
-    try {
-      setLoading(true);
-      setError(null);
+    let endpoint = withWatermark
+      ? `${apiBase}/api/folder/${id}/watermark-zip`
+      : `${apiBase}/api/folder/${id}/clean-zip`;
 
-      // API endpoint set karo
-      let endpoint = withWatermark
-        ? `${apiBase}/api/folder/${id}/watermark-zip`
-        : `${apiBase}/api/folder/${id}/clean-zip`;
-
-      // Agar clean download hai to token ko query param me bhejo
-      if (!withWatermark) {
-        endpoint += `?token=${encodeURIComponent(token)}`;
-      }
-
-      // Browser me direct streaming download trigger karo
-      const link = document.createElement("a");
-      link.href = endpoint;
-      link.setAttribute("download", ""); // Filename server se milega
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // Loading ko thoda delay se false karo taaki UI smooth lage
-      setTimeout(() => {
-        setLoading(false);
-      }, 1000);
-    } catch (err) {
-      console.error("Download error:", err);
-      setError({
-        message: "Download failed",
-        details: err.message,
-      });
-      setLoading(false);
+    if (!withWatermark) {
+      endpoint += `?token=${encodeURIComponent(token)}`;
     }
+
+    // direct browser download trigger
+    const link = document.createElement("a");
+    link.href = endpoint;
+    link.setAttribute("download", "");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   useEffect(() => {
@@ -228,35 +318,104 @@ export default function FolderViewer() {
     fetchData();
   }, [id, apiBase]);
 
+  // Filter files to only show images, videos, and folders that contain media
+  useEffect(() => {
+    const filterFiles = async () => {
+      if (files.length === 0) {
+        setFilteredFiles([]);
+        return;
+      }
+
+      const filtered = [];
+
+      for (const file of files) {
+        const type = getFileType(file);
+
+        // Always include images and videos
+        if (type === "image" || type === "video") {
+          filtered.push(file);
+        }
+        // For folders, check if they contain images or videos
+        else if (type === "folder") {
+          const hasMedia = await checkFolderForMedia(file.id);
+          if (hasMedia) {
+            filtered.push(file);
+          }
+        }
+      }
+
+      setFilteredFiles(filtered);
+    };
+
+    filterFiles();
+  }, [files]);
+
   return (
     <div className="min-h-screen bg-black relative">
       {loading && <LoadingScreen />}
+      {downloadLoading && (
+        <DownloadLoader progress={downloadProgress} status={downloadStatus} />
+      )}
 
       {error && (
         <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50">
           <div className="text-center p-6 bg-white rounded-lg max-w-md">
             <h2 className="text-2xl font-bold text-red-600 mb-2">Error</h2>
             <p className="text-gray-800 mb-4">{error.message}</p>
-            <p className="text-sm text-gray-600">{error.details}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 bg-black text-white rounded hover:bg-gray-800"
-            >
-              Try Again
-            </button>
+            {error.details && (
+              <p className="text-sm text-gray-600 mb-4">{error.details}</p>
+            )}
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-black text-white rounded hover:bg-gray-800"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => setError(null)}
+                className="mt-4 px-4 py-2 bg-gray-300 text-black rounded hover:bg-gray-400"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {files.length === 0 && !loading ? (
+        {filteredFiles.length === 0 && !loading ? (
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+            <svg
+              className="mx-auto h-12 w-12 text-gray-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                vectorEffect="non-scaling-stroke"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"
+              />
+            </svg>
             <h3 className="mt-2 text-lg font-medium text-gray-900">
-              No files found
+              wait File is Loading
             </h3>
             <p className="mt-1 text-sm text-gray-500">
-              The folder appears to be empty
+              This folder contain images, videos or folder. Try checking
+              subfolders.
             </p>
+            <div className="mt-6">
+              <button
+                onClick={() => window.history.back()}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              >
+                Go Back
+              </button>
+            </div>
           </div>
         ) : (
           <>
@@ -279,26 +438,28 @@ export default function FolderViewer() {
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                   <button
                     onClick={() => downloadFolderAsZip(true)}
-                    disabled={files.length === 0 || loading}
+                    disabled={filteredFiles.length === 0 || downloadLoading}
                     className={`px-4 py-2 rounded-none text-sm font-medium w-full sm:w-auto ${
-                      files.length === 0 || loading
+                      filteredFiles.length === 0 || downloadLoading
                         ? "bg-gray-500 text-gray-300 cursor-not-allowed"
                         : "bg-blue-600 text-white hover:bg-blue-700"
                     }`}
                   >
-                    Download Folder with Watermark
+                    {downloadLoading
+                      ? "PREPARING..."
+                      : "Download with Watermark"}
                   </button>
 
                   <button
                     onClick={() => downloadFolderAsZip(false)}
-                    disabled={loading || !isVerified}
+                    disabled={downloadLoading || !isVerified}
                     className={`px-4 py-2 rounded-none text-sm font-medium w-full sm:w-auto ${
-                      loading || !isVerified
+                      downloadLoading || !isVerified
                         ? "bg-gray-500 text-gray-300 cursor-not-allowed"
                         : "bg-green-600 text-white hover:bg-green-700"
                     }`}
                   >
-                    {loading
+                    {downloadLoading
                       ? "PREPARING..."
                       : isVerified
                       ? "Download Clean"
@@ -317,7 +478,7 @@ export default function FolderViewer() {
               </div>
 
               <p className="text-gray-400 max-w-2xl mx-auto">
-                {files.length} items in this folder
+                {filteredFiles.length} media items in this folder
               </p>
 
               {/* Token Verification Section */}
@@ -373,60 +534,88 @@ export default function FolderViewer() {
               initial="hidden"
               animate="visible"
             >
-              {files.map((file) => (
-                <motion.div
-                  key={file.id}
-                  className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300"
-                  variants={cardVariants}
-                >
-                  <Link
-                    to={
-                      getFileType(file) === "folder"
-                        ? `/folder/${file.id}`
-                        : `/file-detail/${file.id}`
-                    }
-                    className="block group"
+              {filteredFiles.map((file) => {
+                const fileType = getFileType(file);
+                const isMediaOrFolder = fileType === "image" || fileType === "video" || fileType === "folder";
+                const folderInfo = fileType === "folder" ? getFolderInfo(file) : null;
+
+                return (
+                  <motion.div
+                    key={file.id}
+                    className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300 relative"
+                    variants={cardVariants}
                   >
-                    <div className="relative h-64 overflow-hidden">
-                      {renderFilePreview(file)}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-                        <span className="text-white text-sm font-medium truncate">
-                          {file.name}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
+                    {/* Copy icon at top-left - Show for images, videos AND folders */}
+                    {isMediaOrFolder && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          copyUrlToClipboard(file);
+                        }}
+                        className="absolute top-2 left-2 z-10 bg-black/70 p-2 rounded-full text-white hover:bg-black transition-colors"
+                        title="Copy file URL"
+                      >
+                        <Copy size={16} />
+                      </button>
+                    )}
 
-                  <div className="p-4 border-t border-gray-100">
-                    <div className="flex justify-between items-center mb-3">
-                      <span className="text-sm font-medium text-gray-900 truncate">
-                        {file.name.split(".")[0]}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatDate(file.modifiedTime)}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 mb-4">
-                      <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
-                        <div>
-                          <p className="text-xs font-medium">TYPE</p>
-                          <p className="text-xs text-gray-500">
-                            {getFileType(file).toUpperCase()}
-                          </p>
+                    <Link
+                      to={
+                        fileType === "folder"
+                          ? `/folder/${file.id}`
+                          : `/file-detail/${file.id}`
+                      }
+                      className="block group"
+                    >
+                      <div className="relative h-64 overflow-hidden">
+                        {renderFilePreview(file)}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+                          <span className="text-white text-sm font-medium truncate">
+                            {file.name}
+                          </span>
                         </div>
-                        <span className="text-sm font-bold">
-                          {getFileType(file) === "folder" ? "VIEW" : "DOWNLOAD"}
+                      </div>
+                    </Link>
+
+                    <div className="p-4 border-t border-gray-100">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-sm font-medium text-gray-900 truncate">
+                          {file.name.split(".")[0]}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {formatDate(file.modifiedTime)}
                         </span>
                       </div>
-                    </div>
 
-                    <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
-                      {getFileType(file) === "folder" ? "OPEN" : "INQUIRE"}
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+                      <div className="space-y-3 mb-4">
+                        <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
+                          <div>
+                            <p className="text-xs font-medium">TYPE</p>
+                            <p className="text-xs text-gray-500">
+                              {fileType.toUpperCase()}
+                            </p>
+                          </div>
+                          <span className="text-sm font-bold">
+                            {fileType === "image" || fileType === "video"
+                              ? formatFileSize(file.size)
+                              : fileType === "folder"
+                              ? `${folderInfo?.totalFiles || 0} ITEMS`
+                              : "DOWNLOAD"}
+                          </span>
+                        </div>
+                        
+                        {/* Additional info row for folders */}
+                       
+                      </div>
+
+                      <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
+                        {fileType === "folder" ? "OPEN" : "INQUIRE"}
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </motion.div>
           </>
         )}

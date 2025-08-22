@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import {
+  Copy,
+  ChevronLeft,
+  ChevronRight,
+  Folder,
+  File,
+  Image,
+  Video,
+} from "lucide-react";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -8,8 +17,8 @@ const containerVariants = {
     opacity: 1,
     transition: {
       when: "beforeChildren",
-      staggerChildren: 0.15, // each card after 0.15s
-      delayChildren: 0.3, // wait before starting first card
+      staggerChildren: 0.15,
+      delayChildren: 0.3,
     },
   },
 };
@@ -55,7 +64,15 @@ export default function DriveViewer() {
     });
   };
 
+  const formatFileSize = (bytes) => {
+    if (!bytes) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  };
+
   const [files, setFiles] = useState([]);
+  const [filteredFiles, setFilteredFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [apiBase] = useState(
@@ -63,6 +80,10 @@ export default function DriveViewer() {
       ? "http://localhost:5000"
       : "https://api.oneshootproduction.in"
   );
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(12); 
 
   useEffect(() => {
     const fetchData = async () => {
@@ -89,6 +110,41 @@ export default function DriveViewer() {
     fetchData();
   }, [apiBase]);
 
+  // Filter files to only show images, videos, and folders
+  useEffect(() => {
+    if (files.length > 0) {
+      const filtered = files.filter((file) => {
+        const type = getFileType(file);
+        // Keep only images, videos, and folders
+        return type === "image" || type === "video" || type === "folder";
+      });
+      setFilteredFiles(filtered);
+    }
+  }, [files]);
+
+  // Copy URL function
+  const copyUrlToClipboard = (file) => {
+    const baseUrl = window.location.origin;
+    const fileType = getFileType(file);
+
+    let url;
+    if (fileType === "folder") {
+      url = `${baseUrl}/folder/${file.id}`;
+    } else {
+      url = `${baseUrl}/file-detail/${file.id}`;
+    }
+
+    navigator.clipboard
+      .writeText(url)
+      .then(() => {
+        // You can add a toast notification here if needed
+        console.log("URL copied to clipboard:", url);
+      })
+      .catch((err) => {
+        console.error("Failed to copy URL:", err);
+      });
+  };
+
   const getFileType = (file) => {
     if (file.mimeType) {
       if (file.mimeType.startsWith("image/")) return "image";
@@ -98,6 +154,36 @@ export default function DriveViewer() {
     }
     return "file";
   };
+
+  // Count files in folder (this would need to be implemented on the backend)
+  const getFolderInfo = (folder) => {
+    // This is a placeholder - you would need to implement this on your backend
+    // For now, we'll just count the files that have this folder as parent
+    const filesInFolder = files.filter(
+      (f) => f.parents && f.parents.includes(folder.id)
+    );
+    const imageCount = filesInFolder.filter(
+      (f) => getFileType(f) === "image"
+    ).length;
+    const videoCount = filesInFolder.filter(
+      (f) => getFileType(f) === "video"
+    ).length;
+
+    return {
+      totalFiles: filesInFolder.length,
+      imageCount,
+      videoCount,
+    };
+  };
+
+  // Pagination logic
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentFiles = filteredFiles.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredFiles.length / itemsPerPage);
+
+  // Change page
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
   const renderFilePreview = (file) => {
     const type = getFileType(file);
@@ -133,30 +219,28 @@ export default function DriveViewer() {
           </div>
         );
       case "folder":
+        const folderInfo = getFolderInfo(file);
         return (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100">
-            <svg
-              className="w-16 h-16 text-gray-500"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-            </svg>
-            <span className="mt-2 text-sm text-gray-700 text-center">
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-4">
+            <Folder className="w-16 h-16 text-gray-500" />
+            <span className="mt-2 text-sm text-gray-700 text-center font-medium">
               {file.name}
             </span>
+            <div className="mt-2 text-xs text-gray-500 text-center">
+              
+              {folderInfo.imageCount > 0 && (
+                <p>{folderInfo.imageCount} images</p>
+              )}
+              {folderInfo.videoCount > 0 && (
+                <p>{folderInfo.videoCount} videos</p>
+              )}
+            </div>
           </div>
         );
       default:
         return (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100">
-            <svg
-              className="w-16 h-16 text-gray-500"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-            </svg>
+            <File className="w-16 h-16 text-gray-500" />
             <span className="mt-2 text-sm text-gray-700 text-center">
               {file.name}
             </span>
@@ -188,7 +272,7 @@ export default function DriveViewer() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {files.length === 0 && !loading ? (
+        {filteredFiles.length === 0 && !loading ? (
           <motion.div
             className="text-center py-12 bg-white rounded-lg border border-gray-200"
             initial={{ opacity: 0 }}
@@ -198,7 +282,7 @@ export default function DriveViewer() {
               No files found
             </h3>
             <p className="mt-1 text-sm text-gray-500">
-              The folder appears to be empty
+              The folder appears to be empty or contains no images/videos
             </p>
           </motion.div>
         ) : (
@@ -218,67 +302,152 @@ export default function DriveViewer() {
               initial="hidden"
               animate="visible"
             >
-              {files.map((file) => (
-                <motion.div
-                  key={file.id}
-                  className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300"
-                  variants={cardVariants}
-                  whileHover="hover"
-                >
-                  <Link
-                    to={
-                      getFileType(file) === "folder"
-                        ? `/folder/${file.id}`
-                        : `/file-detail/${file.id}`
-                    }
-                    className="block group"
+              {currentFiles.map((file) => {
+                const fileType = getFileType(file);
+                const isFolder = fileType === "folder";
+                const folderInfo = isFolder ? getFolderInfo(file) : null;
+
+                return (
+                  <motion.div
+                    key={file.id}
+                    className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300 relative"
+                    variants={cardVariants}
+                    whileHover="hover"
                   >
-                    <div className="relative h-64 overflow-hidden">
-                      {renderFilePreview(file)}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-                        <span className="text-white text-sm font-medium truncate">
-                          {file.name}
-                        </span>
-                      </div>
-                    </div>
-                  </Link>
-
-                  <div className="p-4 border-t border-gray-100">
-                    <div className="flex justify-between items-center mb-3">
-                      <span className="text-sm font-medium text-gray-900 truncate">
-                        {file.name.split(".")[0]}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatDate(file.modifiedTime)}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 mb-4">
-                      <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
-                        <div>
-                          <p className="text-xs font-medium">TYPE</p>
-                          <p className="text-xs text-gray-500">
-                            {getFileType(file).toUpperCase()}
-                          </p>
-                        </div>
-                        <span className="text-sm font-bold">
-                          {getFileType(file) === "folder" ? "VIEW" : "DOWNLOAD"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <a
-                      href={`/folder/${file.id}`} // dynamic folder link
-                      rel="noopener noreferrer"
+                    {/* Copy icon at top-left */}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        copyUrlToClipboard(file); // Pass the file object instead of just the ID
+                      }}
+                      className="absolute top-2 left-2 z-10 bg-black/70 p-2 rounded-full text-white hover:bg-black transition-colors"
+                      title="Copy file URL"
                     >
-                      <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
-                        {getFileType(file) === "folder" ? "OPEN" : "INQUIRE"}
-                      </button>
-                    </a>
-                  </div>
-                </motion.div>
-              ))}
+                      <Copy size={16} />
+                    </button>
+
+                    <Link
+                      to={
+                        isFolder
+                          ? `/folder/${file.id}`
+                          : `/file-detail/${file.id}`
+                      }
+                      className="block group"
+                    >
+                      <div className="relative h-64 overflow-hidden">
+                        {renderFilePreview(file)}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+                          <span className="text-white text-sm font-medium truncate">
+                            {file.name}
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+
+                    <div className="p-4 border-t border-gray-100">
+                      <div className="flex justify-between items-center mb-3">
+                        <span className="text-sm font-medium text-gray-900 truncate">
+                          {file.name.split(".")[0]}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {formatDate(file.modifiedTime)}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 mb-4">
+                        <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
+                          <div>
+                            <p className="text-xs font-medium">TYPE</p>
+                            <p className="text-xs text-gray-500">
+                              {fileType.toUpperCase()}
+                            </p>
+                          </div>
+                          {isFolder ? (
+                            <div className="text-right">
+                             
+                              <p className="text-xs text-gray-500">
+                                {folderInfo.imageCount > 0 &&
+                                  `${folderInfo.imageCount} IMG`}
+                                {folderInfo.imageCount > 0 &&
+                                  folderInfo.videoCount > 0 &&
+                                  " • "}
+                                {folderInfo.videoCount > 0 &&
+                                  `${folderInfo.videoCount} VID`}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-sm font-bold">
+                              {formatFileSize(file.size)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <a
+                        href={
+                          isFolder
+                            ? `/folder/${file.id}`
+                            : `/file-detail/${file.id}`
+                        }
+                        rel="noopener noreferrer"
+                      >
+                        <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
+                          {isFolder ? "OPEN" : "INQUIRE"}
+                        </button>
+                      </a>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </motion.div>
+
+            {/* Pagination controls */}
+            {filteredFiles.length > itemsPerPage && (
+              <div className="mt-12 flex justify-center items-center space-x-4">
+                <button
+                  onClick={() => paginate(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className={`p-2 rounded-full ${
+                    currentPage === 1
+                      ? "text-gray-500 cursor-not-allowed"
+                      : "text-white hover:bg-gray-800"
+                  }`}
+                >
+                  <ChevronLeft size={24} />
+                </button>
+
+                <div className="flex space-x-2">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                    (number) => (
+                      <button
+                        key={number}
+                        onClick={() => paginate(number)}
+                        className={`w-8 h-8 rounded-full text-sm ${
+                          currentPage === number
+                            ? "bg-white text-black"
+                            : "text-white hover:bg-gray-800"
+                        }`}
+                      >
+                        {number}
+                      </button>
+                    )
+                  )}
+                </div>
+
+                <button
+                  onClick={() => paginate(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className={`p-2 rounded-full ${
+                    currentPage === totalPages
+                      ? "text-gray-500 cursor-not-allowed"
+                      : "text-white hover:bg-gray-800"
+                  }`}
+                >
+                  <ChevronRight size={24} />
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>

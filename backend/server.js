@@ -5,6 +5,7 @@ import { google } from "googleapis";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import path from "path";
+import { Readable } from "stream";
 import { fileURLToPath } from "url";
 import sharp from "sharp";
 import { connectDB } from "./utils/db.js";
@@ -55,14 +56,13 @@ if (!fs.existsSync(watermarkPath)) {
 app.use(
   cors({
     origin: function (origin, callback) {
-      // origin null ho sakta hai (Postman ya server-to-server requests ke liye)
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
       }
     },
-    credentials: true, // agar cookies ya authentication headers use kar rahe ho
+    credentials: true, 
   })
 );
 
@@ -109,9 +109,9 @@ app.get("/api/drive-folder", async (_, res) => {
       const response = await drive.files.list({
         q: `'${process.env.FOLDER_ID}' in parents and trashed = false`,
         fields:
-          "nextPageToken, files(id, name, mimeType, webViewLink, iconLink, modifiedTime)",
+          "nextPageToken, files(id, name, mimeType, size, webViewLink, iconLink, modifiedTime, parents)",
         orderBy: "name",
-        pageSize: 1000, // Maximum allowed
+        pageSize: 1000,
         pageToken: pageToken,
       });
 
@@ -121,7 +121,34 @@ app.get("/api/drive-folder", async (_, res) => {
 
     console.log(`Found ${allFiles.length} files`);
 
-    // Filter for images only on the client side if needed
+    // For folders, we need to count their contents
+    const folders = allFiles.filter(file => file.mimeType === "application/vnd.google-apps.folder");
+    
+    // Add file count information for each folder
+    for (const folder of folders) {
+      let folderFiles = [];
+      let folderPageToken = null;
+      
+      do {
+        const folderResponse = await drive.files.list({
+          q: `'${folder.id}' in parents and trashed = false`,
+          fields: "nextPageToken, files(id, mimeType)",
+          pageSize: 1000,
+          pageToken: folderPageToken,
+        });
+        
+        folderFiles = folderFiles.concat(folderResponse.data.files || []);
+        folderPageToken = folderResponse.data.nextPageToken;
+      } while (folderPageToken);
+      
+      // Add folder metadata to the folder object
+      folder.folderInfo = {
+        totalFiles: folderFiles.length,
+        imageCount: folderFiles.filter(f => f.mimeType.startsWith("image/")).length,
+        videoCount: folderFiles.filter(f => f.mimeType.startsWith("video/")).length
+      };
+    }
+
     res.json(allFiles);
   } catch (error) {
     console.error("Error fetching files:", error.message);
@@ -165,6 +192,44 @@ app.get("/api/drive-folder/:folderId", async (req, res) => {
   }
 });
 
+
+app.get("/api/folder-size/:folderId", async (req, res) => {
+  const folderId = req.params.folderId;
+  
+  try {
+    // Recursively get all files in folder and subfolders
+    const getAllFilesRecursive = async (currentFolderId) => {
+      const filesList = await drive.files.list({
+        q: `'${currentFolderId}' in parents and trashed=false`,
+        fields: "files(id, name, mimeType, size)",
+        pageSize: 1000,
+      });
+
+      let totalSize = 0;
+      
+      for (const item of filesList.data.files) {
+        if (item.mimeType === 'application/vnd.google-apps.folder') {
+          // Recursively get subfolder size
+          const subFolderSize = await getAllFilesRecursive(item.id);
+          totalSize += subFolderSize;
+        } else if (item.size) {
+          // Add file size
+          totalSize += parseInt(item.size);
+        }
+      }
+      
+      return totalSize;
+    };
+
+    const totalSize = await getAllFilesRecursive(folderId);
+    
+    res.json({ totalSize });
+  } catch (error) {
+    console.error(`Error getting folder size for ${folderId}:`, error);
+    res.status(500).json({ error: "Failed to calculate folder size" });
+  }
+});
+
 // image watermark function
 async function applyWatermark(imageBuffer) {
   try {
@@ -174,10 +239,7 @@ async function applyWatermark(imageBuffer) {
     await sharp(watermarkPath).metadata();
 
     const metadata = await sharp(imageBuffer).metadata();
-    console.log(
-      `Original image dimensions: ${metadata.width}x${metadata.height}`
-    );
-
+    
     // Watermark resize: exactly cover the whole image
     const watermarkBuffer = await sharp(watermarkPath)
       .resize(metadata.width, metadata.height, {
@@ -247,10 +309,9 @@ function applyVideoWatermark(videoBuffer) {
   });
 }
 
-// Watermark endpoint with better error handling
 app.get("/api/file/:id/watermark", async (req, res) => {
   const fileId = req.params.id;
-  console.log(`Processing watermark for file: ${fileId}`);
+  console.log(`Processing file: ${fileId}`);
 
   try {
     // 1️⃣ Get file metadata from Google Drive
@@ -264,11 +325,11 @@ app.get("/api/file/:id/watermark", async (req, res) => {
 
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="watermarked-${fileName}"`
+      `inline; filename="${fileName}"`
     );
     res.setHeader("Cache-Control", "no-cache");
 
-    // ===== IMAGE FILE =====
+    // ===== IMAGE FILE ===== (Apply watermark)
     if (mimeType.startsWith("image/")) {
       const { data } = await drive.files.get(
         { fileId, alt: "media" },
@@ -280,66 +341,41 @@ app.get("/api/file/:id/watermark", async (req, res) => {
       return res.send(processedBuffer);
     }
 
-    // ===== VIDEO FILE =====
+    // ===== VIDEO FILE ===== (Stream directly without watermark)
     if (mimeType.startsWith("video/")) {
       const { data: driveStream } = await drive.files.get(
         { fileId, alt: "media" },
         { responseType: "stream" }
       );
 
-      res.setHeader("Content-Type", "video/mp4");
-
-      const watermarkPath = path.resolve(__dirname, "watermarks/logo2.png");
-
-      ffmpeg(driveStream)
-        .input(watermarkPath)
-        .complexFilter([
-          {
-            filter: "overlay",
-            options: {
-              x: "(main_w-overlay_w)/2",
-              y: "(main_h-overlay_h)/2",
-            },
-          },
-        ])
-        .videoCodec("libx264")
-        .audioCodec("copy")
-        .outputOptions([
-          "-movflags frag_keyframe+empty_moov",
-          "-preset ultrafast",
-          "-crf 30",
-          "-pix_fmt yuv420p",
-          "-threads 0",
-        ])
-        .format("mp4")
-        .on("error", (err) => {
-          console.error("FFmpeg error:", err.message);
-          if (!res.headersSent) {
-            res.status(500).json({ error: "Video processing failed" });
-          }
-        })
-        .pipe(res, { end: true });
+      res.setHeader("Content-Type", mimeType);
+      
+      // Pipe the video stream directly to response
+      driveStream.pipe(res);
+      
+      driveStream.on('error', (err) => {
+        console.error("Drive stream error:", err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: "Failed to stream video", details: err.message });
+        }
+      });
 
       return;
     }
 
     // ===== UNSUPPORTED FILE =====
     return res.status(400).json({ error: "Unsupported file type" });
+
   } catch (error) {
-    console.error(`Watermark failed for ${fileId}:`, error.message);
+    console.error(`File processing failed for ${fileId}:`, error.message);
     if (!res.headersSent) {
       res.status(500).json({
-        error: "Error adding watermark",
+        error: "Error processing file",
         fileId,
         details: error.message,
       });
     }
   }
-});
-
-// ====== START SERVER ======
-app.listen(4000, () => {
-  console.log("Server running on port 4000");
 });
 
 // Generate JWT token
@@ -673,13 +709,12 @@ app.get("/api/admin/users", async (req, res) => {
 
 app.get("/api/folder/:id/watermark-zip", async (req, res) => {
   const folderId = req.params.id;
-  console.log(`Processing watermark ZIP for folder: ${folderId}`);
 
   try {
     // 1️⃣ Get all files from the folder
     const filesList = await drive.files.list({
       q: `'${folderId}' in parents and trashed=false`,
-      fields: "files(id, name, mimeType)",
+      fields: "files(id, name, mimeType, size)",
       pageSize: 1000,
     });
 
@@ -695,13 +730,71 @@ app.get("/api/folder/:id/watermark-zip", async (req, res) => {
     );
     res.setHeader("Content-Type", "application/zip");
 
-    const archive = archiver("zip", { zlib: { level: 9 } });
+    const archive = archiver("zip", { 
+      zlib: { level: 9 },
+      highWaterMark: 1024 * 1024 // 1MB buffer
+    });
+    
+    // Handle archive errors
+    archive.on('error', (err) => {
+      console.error('Archive error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Archive creation failed" });
+      }
+    });
+    
     archive.pipe(res);
 
-    // 3️⃣ Process each file and add to ZIP
-    for (const file of filesList.data.files) {
+    // 3️⃣ Recursively get all files from folder and subfolders
+    const getAllFiles = async (currentFolderId, currentPath = '') => {
+      const filesList = await drive.files.list({
+        q: `'${currentFolderId}' in parents and trashed=false`,
+        fields: "files(id, name, mimeType, size)",
+        pageSize: 1000,
+      });
+
+      const allFiles = [];
+      
+      for (const item of filesList.data.files) {
+        if (item.mimeType === 'application/vnd.google-apps.folder') {
+          // It's a folder - recursively get its contents
+          console.log(`Processing folder: ${item.name}`);
+          const subFiles = await getAllFiles(item.id, `${currentPath}${item.name}/`);
+          allFiles.push(...subFiles);
+        } else {
+          // It's a file - add to list
+          allFiles.push({
+            ...item,
+            path: currentPath
+          });
+        }
+      }
+      
+      return allFiles;
+    };
+
+    // Get all files recursively
+    const allFiles = await getAllFiles(folderId);
+    console.log(`Found ${allFiles.length} files to process`);
+
+    if (allFiles.length === 0) {
+      archive.finalize();
+      return;
+    }
+
+    // 4️⃣ Process files with limited concurrency
+    const CONCURRENCY_LIMIT = 3;
+    let processedCount = 0;
+
+    const processFile = async (file) => {
       try {
-        console.log(`Processing ${file.name} (${file.mimeType})`);
+        console.log(`Processing file: ${file.path}${file.name} (${file.mimeType})`);
+        
+        // Skip files that are too large to process in memory
+        if (file.size > 50 * 1024 * 1024) {
+          console.log(`Skipping large file: ${file.name}`);
+          return null;
+        }
 
         const { data } = await drive.files.get(
           { fileId: file.id, alt: "media" },
@@ -709,32 +802,67 @@ app.get("/api/folder/:id/watermark-zip", async (req, res) => {
         );
 
         const fileBuffer = Buffer.from(data);
-
         let processedBuffer;
 
         if (file.mimeType.startsWith("image/")) {
           processedBuffer = await applyWatermark(fileBuffer);
         } else if (file.mimeType.startsWith("video/")) {
-          processedBuffer = await applyVideoWatermark(fileBuffer);
+          // Skip watermarking for videos to avoid memory issues
+          processedBuffer = fileBuffer;
         } else {
-          processedBuffer = fileBuffer; // non-media files without watermark
+          processedBuffer = fileBuffer; 
         }
 
-        archive.append(processedBuffer, { name: file.name });
+        return {
+          buffer: processedBuffer,
+          name: `${file.path}${file.name}`
+        };
       } catch (fileError) {
-        console.error(`Error processing ${file.name}:`, fileError.message);
-        // Continue with next file even if one fails
+        console.error(`Error processing ${file.path}${file.name}:`, fileError.message);
+        return null;
+      } finally {
+        processedCount++;
+        console.log(`Processed ${processedCount}/${allFiles.length} files`);
       }
-    }
+    };
 
-    // 4️⃣ Finalize ZIP
+    // Process files in batches
+    const processInBatches = async (files, concurrency) => {
+      for (let i = 0; i < files.length; i += concurrency) {
+        const batch = files.slice(i, i + concurrency);
+        const batchResults = await Promise.all(batch.map(processFile));
+        
+        // Add processed files to archive
+        for (const result of batchResults) {
+          if (result) {
+            archive.append(result.buffer, { name: result.name });
+          }
+        }
+      }
+    };
+
+    // Process all files
+    await processInBatches(allFiles, CONCURRENCY_LIMIT);
+
+    // 5️⃣ Finalize ZIP
     archive.finalize();
+    
+    archive.on('progress', (progress) => {
+      console.log(`ZIP progress: ${progress.entries.processed} files`);
+    });
+    
+    archive.on('end', () => {
+      console.log('ZIP creation completed');
+    });
+
   } catch (error) {
     console.error(`ZIP watermark failed for ${folderId}:`, error.message);
-    res.status(500).json({
-      error: "Error creating watermarked ZIP",
-      details: error.message,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: "Error creating watermarked ZIP",
+        details: error.message,
+      });
+    }
   }
 });
 
@@ -822,27 +950,39 @@ app.get("/api/folder/:id/clean-zip", async (req, res) => {
   const folderId = req.params.id;
   console.log(`Processing clean ZIP for folder: ${folderId}`);
 
-  // Set timeout
-  req.setTimeout(300000, () => {
-    console.log("Request timeout");
-    if (!res.headersSent) {
-      res.status(504).json({ error: "Request timeout" });
-    }
-  });
-
   try {
-    // 1️⃣ Get all files from the folder
-    const filesList = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false`,
-      fields: "files(id, name, mimeType)",
-      pageSize: 1000,
-    });
+    // Recursively get all files
+    const getAllFiles = async (currentFolderId, currentPath = '') => {
+      const filesList = await drive.files.list({
+        q: `'${currentFolderId}' in parents and trashed=false`,
+        fields: "files(id, name, mimeType, size)",
+        pageSize: 1000,
+      });
 
-    if (!filesList.data.files.length) {
+      const allFiles = [];
+      
+      for (const item of filesList.data.files) {
+        if (item.mimeType === 'application/vnd.google-apps.folder') {
+          const subFiles = await getAllFiles(item.id, `${currentPath}${item.name}/`);
+          allFiles.push(...subFiles);
+        } else {
+          allFiles.push({
+            ...item,
+            path: currentPath
+          });
+        }
+      }
+      
+      return allFiles;
+    };
+
+    const allFiles = await getAllFiles(folderId);
+    
+    if (allFiles.length === 0) {
       return res.status(404).json({ error: "No files found in folder" });
     }
 
-    // 2️⃣ Prepare ZIP response
+    // Prepare ZIP response
     const zipFileName = `folder_${folderId}_clean.zip`;
     res.setHeader(
       "Content-Disposition",
@@ -852,10 +992,9 @@ app.get("/api/folder/:id/clean-zip", async (req, res) => {
 
     const archive = archiver("zip", {
       zlib: { level: 9 },
-      highWaterMark: 1024 * 1024, // 1MB buffer
+      highWaterMark: 1024 * 1024,
     });
 
-    // Error handling
     archive.on("error", (err) => {
       console.error("Archive error:", err);
       if (!res.headersSent) {
@@ -863,33 +1002,24 @@ app.get("/api/folder/:id/clean-zip", async (req, res) => {
       }
     });
 
-    // Progress tracking
-    archive.on("progress", (progress) => {
-      console.log(
-        `Processed ${progress.entries.processed} of ${filesList.data.files.length} files`
-      );
-    });
-
     archive.pipe(res);
 
-    // 3️⃣ Add each file using streams
-    for (const file of filesList.data.files) {
+    // Add files using streams
+    for (const file of allFiles) {
       try {
-        console.log(`Adding ${file.name} (${file.mimeType}) to clean ZIP`);
-
         const fileStream = await drive.files.get(
           { fileId: file.id, alt: "media" },
           { responseType: "stream" }
         );
 
-        archive.append(fileStream.data, { name: file.name });
+        archive.append(fileStream.data, { name: `${file.path}${file.name}` });
       } catch (fileError) {
         console.error(`Error adding ${file.name}:`, fileError.message);
       }
     }
 
-    // 4️⃣ Finalize ZIP
     archive.finalize();
+
   } catch (error) {
     console.error(`Clean ZIP failed for ${folderId}:`, error.message);
     if (!res.headersSent) {

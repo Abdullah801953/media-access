@@ -50,35 +50,53 @@ export default function ImageDetail() {
     }
   };
 
-const handleDownload = (withWatermark = false) => {
-  try {
-    setLoading(true);
-    setError(null);
+  const handleDownload = async (fileId, fileName, withWatermark = true) => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    const downloadUrl = withWatermark
-      ? `${watermarkedUrl}?token=${encodeURIComponent(token)}`
-      : `${cleanUrl}?token=${encodeURIComponent(token)}`;
+      const downloadUrl = withWatermark
+        ? `${apiBase}/api/file/${fileId}/watermark`
+        : `${apiBase}/api/file/${fileId}/download`;
 
-    // ✅ Create a temporary <a> element
-    const link = document.createElement("a");
-    link.href = downloadUrl;
+      // Add token if available for clean downloads
+      const urlWithToken =
+        !withWatermark && token
+          ? `${downloadUrl}?token=${encodeURIComponent(token)}`
+          : downloadUrl;
 
-    // Let the browser decide the filename or you can force one:
-    // link.download = "myfile.mp4"; // optional
-    link.target = "_blank"; // ensures some browsers respect download
+      // Use fetch to get the file and create a download
+      const response = await fetch(urlWithToken);
 
-    // Append, click, and remove
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      if (!response.ok) {
+        throw new Error(
+          `Download failed: ${response.status} ${response.statusText}`
+        );
+      }
 
-    setLoading(false);
-  } catch (err) {
-    setError(err.message);
-    setLoading(false);
-  }
-};
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
 
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName || `download-${fileId}`;
+      link.style.display = "none";
+
+      document.body.appendChild(link);
+      link.click();
+
+      // Cleanup
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(link);
+      }, 100);
+
+      setLoading(false);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchFileInfo = async () => {
