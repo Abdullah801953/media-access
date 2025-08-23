@@ -155,26 +155,19 @@ export default function DriveViewer() {
     return "file";
   };
 
-  // Count files in folder (this would need to be implemented on the backend)
-  const getFolderInfo = (folder) => {
-    // This is a placeholder - you would need to implement this on your backend
-    // For now, we'll just count the files that have this folder as parent
-    const filesInFolder = files.filter(
-      (f) => f.parents && f.parents.includes(folder.id)
-    );
-    const imageCount = filesInFolder.filter(
-      (f) => getFileType(f) === "image"
-    ).length;
-    const videoCount = filesInFolder.filter(
-      (f) => getFileType(f) === "video"
-    ).length;
-
+const getFolderInfo = (folder) => {
+    // Count files that have this folder as parent
+    const filesInFolder = files.filter(f => f.parents && f.parents.includes(folder.id));
+    const imageCount = filesInFolder.filter(f => getFileType(f) === "image").length;
+    const videoCount = filesInFolder.filter(f => getFileType(f) === "video").length;
+    
     return {
       totalFiles: filesInFolder.length,
       imageCount,
-      videoCount,
+      videoCount
     };
   };
+
 
   // Pagination logic
   const indexOfLastItem = currentPage * itemsPerPage;

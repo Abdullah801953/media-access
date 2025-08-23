@@ -50,46 +50,25 @@ export default function ImageDetail() {
     }
   };
 
-  const handleDownload = async (fileId, fileName, withWatermark = true) => {
+  const handleDownload = (withWatermark = false) => {
     try {
       setLoading(true);
       setError(null);
 
       const downloadUrl = withWatermark
-        ? `${apiBase}/api/file/${fileId}/watermark`
-        : `${apiBase}/api/file/${fileId}/download`;
+        ? `${watermarkedUrl}?token=${encodeURIComponent(token)}`
+        : `${cleanUrl}?token=${encodeURIComponent(token)}`;
 
-      // Add token if available for clean downloads
-      const urlWithToken =
-        !withWatermark && token
-          ? `${downloadUrl}?token=${encodeURIComponent(token)}`
-          : downloadUrl;
-
-      // Use fetch to get the file and create a download
-      const response = await fetch(urlWithToken);
-
-      if (!response.ok) {
-        throw new Error(
-          `Download failed: ${response.status} ${response.statusText}`
-        );
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
+      // ✅ Create a temporary <a> element
       const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName || `download-${fileId}`;
-      link.style.display = "none";
+      link.href = downloadUrl;
+      link.setAttribute("download", ""); // 🔑 force browser to download
+      // link.download = "myfile.mp4"; // (optional: set custom filename)
 
+      // Append, click, and remove
       document.body.appendChild(link);
       link.click();
-
-      // Cleanup
-      setTimeout(() => {
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(link);
-      }, 100);
+      document.body.removeChild(link);
 
       setLoading(false);
     } catch (err) {
@@ -150,8 +129,8 @@ export default function ImageDetail() {
                 Preview with watermark
               </p>
               <a
-                href={`${watermarkedUrl}?token=${encodeURIComponent(token)}`} // dynamic URL
-                download // browser decides filename, ya server se filename aaye
+                href={`${watermarkedUrl}?token=${encodeURIComponent(token)}`}
+                download
                 className={`w-full py-1.5 bg-black text-white text-xs font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider inline-block text-center ${
                   loading
                     ? "opacity-50 pointer-events-none cursor-not-allowed"

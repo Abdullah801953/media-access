@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { jwtDecode } from "jwt-decode";
-import { Copy } from "lucide-react";
+import { Copy, ChevronLeft, ChevronRight } from "lucide-react";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -68,111 +68,14 @@ const DownloadLoader = ({ progress, status }) => (
     </div>
   </div>
 );
+// Memoized file card component to prevent unnecessary re-renders
+const FileCard = React.memo(({ file, apiBase, copyUrlToClipboard, getFileType, getFolderInfo, formatDate, formatFileSize }) => {
+  const fileType = getFileType(file);
+  const isMediaOrFolder = fileType === "image" || fileType === "video" || fileType === "folder";
+  const folderInfo = fileType === "folder" ? getFolderInfo(file) : null;
 
-export default function FolderViewer() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const [files, setFiles] = useState([]);
-  const [filteredFiles, setFilteredFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [downloadLoading, setDownloadLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [token, setToken] = useState("");
-  const [isVerified, setIsVerified] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [downloadStatus, setDownloadStatus] = useState("");
-  const apiBase =
-    window.location.hostname === "localhost"
-      ? "http://localhost:5000"
-      : "https://api.oneshootproduction.in";
-
-  const cleanUrl = `${apiBase}/api/verify-folder-token`;
-
-  const formatDate = (dateString) => {
-    if (!dateString) return "—";
-    const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const formatFileSize = (bytes) => {
-    if (!bytes) return "—";
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / 1048576).toFixed(1) + " MB";
-  };
-
-  const getFileType = (file) => {
-    if (file.mimeType) {
-      if (file.mimeType.startsWith("image/")) return "image";
-      if (file.mimeType.startsWith("video/")) return "video";
-      if (file.mimeType === "application/vnd.google-apps.folder")
-        return "folder";
-    }
-    return "file";
-  };
-
-  // Function to copy file details to clipboard
-  const copyUrlToClipboard = (file) => {
-    const baseUrl = window.location.origin;
-    const fileType = getFileType(file);
-
-    let url;
-    if (fileType === "folder") {
-      url = `${baseUrl}/folder/${file.id}`;
-    } else {
-      url = `${baseUrl}/file-detail/${file.id}`;
-    }
-
-    navigator.clipboard
-      .writeText(url)
-      .then(() => {
-        console.log("URL copied to clipboard:", url);
-      })
-      .catch((err) => {
-        console.error("Failed to copy URL:", err);
-      });
-  };
-
-  // Function to check if a folder contains images or videos
-  const checkFolderForMedia = async (folderId) => {
-    try {
-      const response = await fetch(`${apiBase}/api/drive-folder/${folderId}`);
-      if (!response.ok) return false;
-
-      const folderData = await response.json();
-      return folderData.some(
-        (file) =>
-          file.mimeType.startsWith("image/") ||
-          file.mimeType.startsWith("video/")
-      );
-    } catch (error) {
-      console.error("Error checking folder:", error);
-      return false;
-    }
-  };
-
-  // Get folder info (count files, images, videos)
-  const getFolderInfo = (folder) => {
-    // Count files that have this folder as parent
-    const filesInFolder = files.filter(f => f.parents && f.parents.includes(folder.id));
-    const imageCount = filesInFolder.filter(f => getFileType(f) === "image").length;
-    const videoCount = filesInFolder.filter(f => getFileType(f) === "video").length;
-    
-    return {
-      totalFiles: filesInFolder.length,
-      imageCount,
-      videoCount
-    };
-  };
-
-  const renderFilePreview = (file) => {
-    const type = getFileType(file);
-
-    switch (type) {
+  const renderFilePreview = useCallback(() => {
+    switch (fileType) {
       case "image":
         return (
           <img
@@ -180,18 +83,28 @@ export default function FolderViewer() {
             alt={file.name}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
             loading="lazy"
+            onError={e => {
+              e.target.onerror = null;
+              e.target.src = file.thumbnailLink || file.iconLink || "https://via.placeholder.com/300?text=Image+Not+Found";
+            }}
           />
         );
       case "video":
         return (
           <div className="relative w-full h-full flex items-center justify-center bg-black">
-            <video className="max-h-full max-w-full">
+            <video 
+              className="max-h-full max-w-full object-cover w-full h-full"
+              muted
+              preload="metadata"
+              poster={`${apiBase}/api/file/${file.id}/thumbnail`}
+            >
               <source
                 src={`${apiBase}/api/file/${file.id}/watermark`}
                 type={file.mimeType}
               />
+              Your browser does not support the video tag.
             </video>
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30">
               <svg
                 className="w-16 h-16 text-white opacity-75"
                 fill="currentColor"
@@ -203,7 +116,6 @@ export default function FolderViewer() {
           </div>
         );
       case "folder":
-        const folderInfo = getFolderInfo(file);
         return (
           <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-4">
             <svg
@@ -213,10 +125,6 @@ export default function FolderViewer() {
             >
               <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
             </svg>
-            <div className="mt-2 text-xs text-gray-500 text-center">
-              {folderInfo.imageCount > 0 && <p>{folderInfo.imageCount} images</p>}
-              {folderInfo.videoCount > 0 && <p>{folderInfo.videoCount} videos</p>}
-            </div>
           </div>
         );
       default:
@@ -232,9 +140,266 @@ export default function FolderViewer() {
           </div>
         );
     }
-  };
+  }, [file, apiBase, fileType]);
 
-  const handleVerifyToken = async () => {
+  return (
+    <motion.div
+      className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300 relative"
+      variants={cardVariants}
+    >
+      {/* Copy icon at top-left - Show for images, videos AND folders */}
+      {isMediaOrFolder && (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            copyUrlToClipboard(file);
+          }}
+          className="absolute top-2 left-2 z-10 bg-black/70 p-2 rounded-full text-white hover:bg-black transition-colors"
+          title="Copy file URL"
+        >
+          <Copy size={16} />
+        </button>
+      )}
+
+      <Link
+        to={
+          fileType === "folder"
+            ? `/folder/${file.id}`
+            : `/file-detail/${file.id}`
+        }
+        className="block group"
+      >
+        <div className="relative h-64 overflow-hidden">
+          {renderFilePreview()}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+            <span className="text-white text-sm font-medium truncate">
+              {file.name}
+            </span>
+          </div>
+        </div>
+      </Link>
+
+      <div className="p-4 border-t border-gray-100">
+        <div className="flex justify-between items-center mb-3">
+          <span className="text-sm font-medium text-gray-900 truncate">
+            {file.name.split(".")[0]}
+          </span>
+          <span className="text-xs text-gray-500">
+            {formatDate(file.modifiedTime)}
+          </span>
+        </div>
+
+        <div className="space-y-3 mb-4">
+          <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
+            <div>
+              <p className="text-xs font-medium">TYPE</p>
+              <p className="text-xs text-gray-500">
+                {fileType.toUpperCase()}
+              </p>
+            </div>
+            <span className="text-sm font-bold">
+              {fileType === "image" || fileType === "video"
+                ? formatFileSize(file.size)
+                : fileType === "folder"
+                }
+            </span>
+          </div>
+          
+          {/* Additional info row for folders */}
+         
+        </div>
+
+        <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
+          {fileType === "folder" ? "OPEN" : "INQUIRE"}
+        </button>
+      </div>
+    </motion.div>
+  );
+});
+
+FileCard.displayName = 'FileCard';
+
+// Pagination component
+const Pagination = ({ currentPage, totalPages, onPageChange }) => {
+  const pages = useMemo(() => {
+    const pageNumbers = [];
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+      pageNumbers.push(i);
+    }
+    
+    return pageNumbers;
+  }, [currentPage, totalPages]);
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex justify-center items-center mt-8 space-x-2">
+      <button
+        onClick={() => onPageChange(currentPage - 1)}
+        disabled={currentPage === 1}
+        className={`p-2 rounded ${currentPage === 1 ? 'text-gray-400 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`}
+      >
+        <ChevronLeft size={20} />
+      </button>
+      
+      {pages[0] > 1 && (
+        <>
+          <button
+            onClick={() => onPageChange(1)}
+            className={`px-3 py-1 rounded ${currentPage === 1 ? 'bg-blue-600 text-white' : 'text-white hover:bg-gray-700'}`}
+          >
+            1
+          </button>
+          {pages[0] > 2 && <span className="text-white">...</span>}
+        </>
+      )}
+      
+      {pages.map(page => (
+        <button
+          key={page}
+          onClick={() => onPageChange(page)}
+          className={`px-3 py-1 rounded ${currentPage === page ? 'bg-blue-600 text-white' : 'text-white hover:bg-gray-700'}`}
+        >
+          {page}
+        </button>
+      ))}
+      
+      {pages[pages.length - 1] < totalPages && (
+        <>
+          {pages[pages.length - 1] < totalPages - 1 && <span className="text-white">...</span>}
+          <button
+            onClick={() => onPageChange(totalPages)}
+            className={`px-3 py-1 rounded ${currentPage === totalPages ? 'bg-blue-600 text-white' : 'text-white hover:bg-gray-700'}`}
+          >
+            {totalPages}
+          </button>
+        </>
+      )}
+      
+      <button
+        onClick={() => onPageChange(currentPage + 1)}
+        disabled={currentPage === totalPages}
+        className={`p-2 rounded ${currentPage === totalPages ? 'text-gray-400 cursor-not-allowed' : 'text-white hover:bg-gray-700'}`}
+      >
+        <ChevronRight size={20} />
+      </button>
+    </div>
+  );
+};
+
+export default function FolderViewer() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [files, setFiles] = useState([]);
+  const [filteredFiles, setFilteredFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [token, setToken] = useState("");
+  const [isVerified, setIsVerified] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatus, setDownloadStatus] = useState("");
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(12); // Adjust based on your layout
+
+  const apiBase = useMemo(() => 
+    window.location.hostname === "localhost"
+      ? "http://localhost:5000"
+      : "https://api.oneshootproduction.in",
+    []
+  );
+
+  const cleanUrl = useMemo(() => `${apiBase}/api/verify-folder-token`, [apiBase]);
+
+  // Memoized functions to prevent unnecessary re-renders
+  const formatDate = useCallback((dateString) => {
+    if (!dateString) return "—";
+    const date = new Date(dateString);
+    return date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }, []);
+
+  const formatFileSize = useCallback((bytes) => {
+    if (!bytes) return "—";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  }, []);
+
+  const getFileType = useCallback((file) => {
+    if (file.mimeType) {
+      if (file.mimeType.startsWith("image/")) return "image";
+      if (file.mimeType.startsWith("video/")) return "video";
+      if (file.mimeType === "application/vnd.google-apps.folder") return "folder";
+    }
+    return "file";
+  }, []);
+
+  const copyUrlToClipboard = useCallback((file) => {
+    const baseUrl = window.location.origin;
+    const fileType = getFileType(file);
+
+    let url;
+    if (fileType === "folder") {
+      url = `${baseUrl}/folder/${file.id}`;
+    } else {
+      url = `${baseUrl}/file-detail/${file.id}`;
+    }
+
+    navigator.clipboard.writeText(url)
+      .then(() => {
+        console.log("URL copied to clipboard:", url);
+      })
+      .catch((err) => {
+        console.error("Failed to copy URL:", err);
+      });
+  }, [getFileType]);
+
+  const getFolderInfo = useCallback((folder) => {
+    const filesInFolder = files.filter(f => f.parents && f.parents.includes(folder.id));
+    const imageCount = filesInFolder.filter(f => getFileType(f) === "image").length;
+    const videoCount = filesInFolder.filter(f => getFileType(f) === "video").length;
+    
+    return {
+      totalFiles: filesInFolder.length,
+      imageCount,
+      videoCount
+    };
+  }, [files, getFileType]);
+
+  // Function to check if a folder contains images or videos
+  const checkFolderForMedia = useCallback(async (folderId) => {
+    try {
+      const response = await fetch(`${apiBase}/api/drive-folder/${folderId}`);
+      if (!response.ok) return false;
+
+      const folderData = await response.json();
+      return folderData.some(
+        (file) =>
+          file.mimeType.startsWith("image/") ||
+          file.mimeType.startsWith("video/")
+      );
+    } catch (error) {
+      console.error("Error checking folder:", error);
+      return false;
+    }
+  }, [apiBase]);
+
+  const handleVerifyToken = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -273,9 +438,9 @@ export default function FolderViewer() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token, cleanUrl, id]);
 
-  const downloadFolderAsZip = (withWatermark = true) => {
+  const downloadFolderAsZip = useCallback((withWatermark = true) => {
     let endpoint = withWatermark
       ? `${apiBase}/api/folder/${id}/watermark-zip`
       : `${apiBase}/api/folder/${id}/clean-zip`;
@@ -291,7 +456,23 @@ export default function FolderViewer() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
+  }, [apiBase, id, token]);
+
+  // Calculate paginated files
+  const paginatedFiles = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredFiles.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredFiles, currentPage, itemsPerPage]);
+
+  const totalPages = useMemo(() => 
+    Math.ceil(filteredFiles.length / itemsPerPage),
+    [filteredFiles.length, itemsPerPage]
+  );
+
+  // Reset to first page when filtered files change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filteredFiles]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -348,7 +529,13 @@ export default function FolderViewer() {
     };
 
     filterFiles();
-  }, [files]);
+  }, [files, getFileType, checkFolderForMedia]);
+
+  const handlePageChange = useCallback((page) => {
+    setCurrentPage(page);
+    // Scroll to top when page changes
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   return (
     <div className="min-h-screen bg-black relative">
@@ -384,38 +571,17 @@ export default function FolderViewer() {
       )}
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {filteredFiles.length === 0 && !loading ? (
-          <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-            <svg
-              className="mx-auto h-12 w-12 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                vectorEffect="non-scaling-stroke"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"
-              />
-            </svg>
-            <h3 className="mt-2 text-lg font-medium text-gray-900">
-              wait File is Loading
-            </h3>
-            <p className="mt-1 text-sm text-gray-500">
-              This folder contain images, videos or folder. Try checking
-              subfolders.
-            </p>
-            <div className="mt-6">
-              <button
-                onClick={() => window.history.back()}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-              >
-                Go Back
-              </button>
-            </div>
+        {filteredFiles.length === 0 && loading ? (
+          <div className="text-center py-20">
+            <div className="inline-block h-16 w-16 border-4 border-white border-t-transparent rounded-full animate-spin mb-4"></div>
+            <h2 className="text-2xl font-light text-white">Loading Folder Contents</h2>
+            <p className="text-gray-400 mt-2">Please wait while we fetch your files...</p>
+          </div>
+        ) : filteredFiles.length === 0 && !loading ? (
+          <div className="text-center py-20">
+            <div className="inline-block h-16 w-16 border-4 border-white border-t-transparent rounded-full animate-spin mb-4"></div>
+            <h2 className="text-2xl font-light text-white">Loading Folder Contents</h2>
+            <p className="text-gray-400 mt-2">Please wait while we fetch your files...</p>
           </div>
         ) : (
           <>
@@ -478,7 +644,7 @@ export default function FolderViewer() {
               </div>
 
               <p className="text-gray-400 max-w-2xl mx-auto">
-                {filteredFiles.length} media items in this folder
+                Showing {paginatedFiles.length} of {filteredFiles.length} media items (Page {currentPage} of {totalPages})
               </p>
 
               {/* Token Verification Section */}
@@ -534,89 +700,26 @@ export default function FolderViewer() {
               initial="hidden"
               animate="visible"
             >
-              {filteredFiles.map((file) => {
-                const fileType = getFileType(file);
-                const isMediaOrFolder = fileType === "image" || fileType === "video" || fileType === "folder";
-                const folderInfo = fileType === "folder" ? getFolderInfo(file) : null;
-
-                return (
-                  <motion.div
-                    key={file.id}
-                    className="bg-white rounded-none overflow-hidden border border-gray-200 hover:border-gray-300 transition-all duration-300 relative"
-                    variants={cardVariants}
-                  >
-                    {/* Copy icon at top-left - Show for images, videos AND folders */}
-                    {isMediaOrFolder && (
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          copyUrlToClipboard(file);
-                        }}
-                        className="absolute top-2 left-2 z-10 bg-black/70 p-2 rounded-full text-white hover:bg-black transition-colors"
-                        title="Copy file URL"
-                      >
-                        <Copy size={16} />
-                      </button>
-                    )}
-
-                    <Link
-                      to={
-                        fileType === "folder"
-                          ? `/folder/${file.id}`
-                          : `/file-detail/${file.id}`
-                      }
-                      className="block group"
-                    >
-                      <div className="relative h-64 overflow-hidden">
-                        {renderFilePreview(file)}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-                          <span className="text-white text-sm font-medium truncate">
-                            {file.name}
-                          </span>
-                        </div>
-                      </div>
-                    </Link>
-
-                    <div className="p-4 border-t border-gray-100">
-                      <div className="flex justify-between items-center mb-3">
-                        <span className="text-sm font-medium text-gray-900 truncate">
-                          {file.name.split(".")[0]}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {formatDate(file.modifiedTime)}
-                        </span>
-                      </div>
-
-                      <div className="space-y-3 mb-4">
-                        <div className="flex items-center justify-between p-2 bg-gray-100 rounded">
-                          <div>
-                            <p className="text-xs font-medium">TYPE</p>
-                            <p className="text-xs text-gray-500">
-                              {fileType.toUpperCase()}
-                            </p>
-                          </div>
-                          <span className="text-sm font-bold">
-                            {fileType === "image" || fileType === "video"
-                              ? formatFileSize(file.size)
-                              : fileType === "folder"
-                              ? `${folderInfo?.totalFiles || 0} ITEMS`
-                              : "DOWNLOAD"}
-                          </span>
-                        </div>
-                        
-                        {/* Additional info row for folders */}
-                       
-                      </div>
-
-                      <button className="w-full py-3 bg-black text-white text-sm font-medium rounded-none hover:bg-gray-800 transition-colors uppercase tracking-wider">
-                        {fileType === "folder" ? "OPEN" : "INQUIRE"}
-                      </button>
-                    </div>
-                  </motion.div>
-                );
-              })}
+              {paginatedFiles.map((file) => (
+                <FileCard
+                  key={file.id}
+                  file={file}
+                  apiBase={apiBase}
+                  copyUrlToClipboard={copyUrlToClipboard}
+                  getFileType={getFileType}
+                  getFolderInfo={getFolderInfo}
+                  formatDate={formatDate}
+                  formatFileSize={formatFileSize}
+                />
+              ))}
             </motion.div>
+
+            {/* Pagination Controls */}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
           </>
         )}
       </main>
